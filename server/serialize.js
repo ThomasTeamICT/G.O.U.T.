@@ -78,3 +78,26 @@ export function activityFull(row) {
     track: JSON.parse(row.track),
   };
 }
+
+export function highlightSummary(row, viewerId = null) {
+  const votes = db.prepare('SELECT COUNT(*) AS c FROM highlight_votes WHERE highlight_id = ?').get(row.id).c;
+  const voted = viewerId
+    ? !!db.prepare('SELECT 1 AS x FROM highlight_votes WHERE highlight_id = ? AND user_id = ?').get(row.id, viewerId)
+    : false;
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    sport: row.sport,
+    track: JSON.parse(row.track),
+    startLat: row.start_lat,
+    startLon: row.start_lon,
+    bbox: row.bbox ? JSON.parse(row.bbox) : null,
+    region: row.region,
+    votes,
+    voted,
+    isOwner: viewerId != null && viewerId === row.user_id,
+    ownerName: row.owner_name ?? undefined,
+    createdAt: row.created_at,
+  };
+}

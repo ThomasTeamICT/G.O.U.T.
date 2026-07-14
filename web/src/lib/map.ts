@@ -29,10 +29,23 @@ export function createMap(container: HTMLElement, opts: { center?: [number, numb
     attribution: '&copy; OpenStreetMap | stijl <a href="https://www.cyclosm.org">CyclOSM</a>',
   });
 
+  // Bewegwijzerde routes (GR's, knooppuntnetwerken, jacobswegen, ...) als
+  // aanvinkbare overlays — gratis tegels van waymarkedtrails.org (OSM-data).
+  const wmt = (slug: string) =>
+    L.tileLayer(`https://tile.waymarkedtrails.org/${slug}/{z}/{x}/{y}.png`, {
+      maxZoom: 18,
+      opacity: 0.85,
+      attribution: 'routes &copy; <a href="https://waymarkedtrails.org">Waymarked Trails</a>',
+    });
+
   osm.addTo(map);
   L.control.layers(
     { 'Standaard': osm, 'Topografisch': topo, 'Fiets & MTB': cyclosm },
-    {},
+    {
+      'Bewegwijzerd: wandelen': wmt('hiking'),
+      'Bewegwijzerd: fietsen': wmt('cycling'),
+      'Bewegwijzerd: MTB': wmt('mtb'),
+    },
     { position: 'topright' }
   ).addTo(map);
   L.control.scale({ imperial: false, position: 'bottomleft' }).addTo(map);

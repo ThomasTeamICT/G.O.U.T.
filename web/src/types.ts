@@ -72,3 +72,20 @@ export interface StatsResponse {
   monthly: { month: string; wandelen: number; fietsen: number; mtb: number }[];
   records: { longest: ActivitySummary | null; mostClimb: ActivitySummary | null };
 }
+
+export interface Highlight {
+  id: number;
+  name: string;
+  description: string;
+  sport: Sport | 'alle';
+  track: TrackPoint[];
+  startLat: number | null;
+  startLon: number | null;
+  bbox: [number, number, number, number] | null;
+  region: string | null;
+  votes: number;
+  voted: boolean;
+  isOwner: boolean;
+  ownerName?: string;
+  createdAt: string;
+}

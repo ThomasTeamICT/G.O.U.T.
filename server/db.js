@@ -85,4 +85,26 @@ db.exec(`
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_activities_user ON activities(user_id);
+
+  CREATE TABLE IF NOT EXISTS highlights (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    sport       TEXT NOT NULL CHECK (sport IN ('wandelen','fietsen','mtb','alle')),
+    track       TEXT NOT NULL,
+    start_lat   REAL,
+    start_lon   REAL,
+    bbox        TEXT,
+    region      TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_highlights_user ON highlights(user_id);
+
+  CREATE TABLE IF NOT EXISTS highlight_votes (
+    highlight_id INTEGER NOT NULL REFERENCES highlights(id) ON DELETE CASCADE,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (highlight_id, user_id)
+  );
 `);

@@ -51,7 +51,7 @@ function renderTopbar() {
     el('button', {
       class: 'btn btn-primary btn-sm', onclick: () => navigate('/routes?import=1'),
       html: undefined, title: 'GPX-bestand importeren',
-    }, svgEl(icons.upload), 'GPX importeren'),
+    }, svgEl(icons.upload), el('span', { class: 'gpx-label' }, 'GPX importeren')),
     el('button', {
       class: 'avatar', style: `background:${u.avatarColor}`, title: u.name,
       onclick: (e: MouseEvent) => {

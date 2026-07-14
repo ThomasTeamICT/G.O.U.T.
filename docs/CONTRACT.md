@@ -147,3 +147,32 @@ Kleurtokens: `var(--accent)` oranje, `var(--green)`, `var(--danger)`, `var(--mut
 - Destructief: altijd `confirmDialog`.
 - Responsief tot 375px breed; kaartpagina's gebruiken `page-wide` + `map-holder`.
 - Datums via `fmtDate`; sport altijd met icoon.
+
+## Highlights ("toppertjes" — aanbevolen stukjes zoals bij Komoot)
+
+Tabellen: `highlights` en `highlight_votes` (zie server/db.js). Serializer:
+`highlightSummary(row, viewerId)` in server/serialize.js (join `users.name AS owner_name`).
+Type: `Highlight` in web/src/types.ts. Sport kan ook `'alle'` zijn.
+
+### API (`server/api/highlights.js`, gemount op /api/highlights, alles requireAuth)
+
+- `GET /api/highlights?bbox=w,s,e,n&sport=` → `{highlights: Highlight[]}` — bbox verplicht,
+  overlap-filter zoals discover; sport filtert op (sport OF 'alle'); sortering: votes desc, nieuwste.
+  Limiet 200.
+- `POST /api/highlights` `{name 1..80, description? ≤500, sport, track 2..2000 punten}` → 201 `{highlight}`.
+  Server berekent bbox/start; region via niets (client stuurt niet mee — houd het licht).
+- `PUT /:id` `{name?, description?, sport?}` (eigenaar) / `DELETE /:id` (eigenaar).
+- `POST /:id/vote` en `DELETE /:id/vote` → `{votes, voted}` — niet op eigen highlight (400).
+
+### UI
+
+- **Aanmaken** (route.ts, detailpagina): knop 'Highlight markeren' (alleen eigenaar of publieke route,
+  icons.flag) → markeer-modus: twee klikken op de routelijn kiezen begin- en eindpunt van het segment
+  (visuele preview in oranje), dan modal (naam, sport, beschrijving) → POST met het track-segment.
+- **Tonen** (plan.ts planner + discover.ts): toggle-knopje 'Highlights' (icons.flag). Aan = GET op huidige
+  kaart-bbox, teken segmenten als oranje lijnen (#e8590c, weight 5, opacity .75) met een klein
+  vlag-markertje op het middelpunt; klik → Leaflet-popup met naam, sport-icoon, stemmen, duim-knop
+  (POST/DELETE vote; eigen highlight = geen knop), beschrijving en 'door {ownerName}'. Herladen bij
+  moveend alleen als de toggle aan staat (debounce 600ms).
+- Bewegwijzerde officiële routes (GR's, knooppunten) zitten al als overlay-tegellagen in de
+  lagencontrole (map.ts) — highlights zijn het community-deel daarbovenop.
