@@ -171,7 +171,7 @@ routesRouter.post('/import', requireAuth, (req, res) => {
     INSERT INTO routes (user_id, name, description, sport, track,
       distance_m, ascent_m, descent_m, duration_s, difficulty,
       region, source, preview, start_lat, start_lon, bbox, gpx)
-    VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, 'geimporteerd', ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, 'geimporteerd', ?, ?, ?, ?, ?)
   `).run(
     req.user.id, b.name.trim(), b.sport, JSON.stringify(b.track),
     stats.distance_m, stats.ascent_m, stats.descent_m, stats.duration_s, stats.difficulty,

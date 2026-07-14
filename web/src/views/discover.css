@@ -1,0 +1,106 @@
+/* Ontdek — tweeluik: rustig zijpaneel links, kaart rechts. */
+
+main.page-wide.discover { display: flex; min-height: 0; }
+
+.discover-panel {
+  width: 380px; flex: none; display: flex; flex-direction: column;
+  min-height: 0; background: var(--bg);
+  border-right: 1px solid var(--line);
+}
+
+.discover-head {
+  flex: none; display: flex; flex-direction: column; gap: .7rem;
+  padding: 1rem 1rem .85rem; border-bottom: 1px solid var(--line);
+}
+.discover-head h2 { margin: 0; }
+
+.discover-search-wrap { position: relative; }
+.discover-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 900;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--radius-s); box-shadow: var(--shadow-pop);
+  overflow: hidden auto; max-height: 260px;
+}
+.discover-drop-item {
+  display: flex; align-items: center; gap: .55rem; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left;
+  font: 600 .9rem var(--font); color: var(--ink);
+  padding: .55rem .8rem;
+}
+.discover-drop-item:hover { background: var(--surface-2); }
+.discover-drop-item svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
+.discover-drop-empty { padding: .7rem .8rem; color: var(--muted); font-size: .88rem; }
+
+.discover-filters { display: flex; gap: .4rem; flex-wrap: wrap; }
+
+.discover-results {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: .6rem;
+  padding: .85rem 1rem 1.6rem;
+}
+
+/* ---------- resultaat-kaartjes (compact) ---------- */
+.discover-card {
+  display: flex; align-items: center; gap: .7rem; cursor: pointer;
+  background: var(--surface); border-radius: var(--radius-s);
+  box-shadow: var(--shadow); padding: .55rem .6rem;
+  transition: box-shadow .15s, transform .15s;
+}
+.discover-card:hover { box-shadow: var(--shadow-pop); transform: translateY(-1px); }
+
+.dc-rank {
+  width: 28px; height: 28px; flex: none; border-radius: 999px;
+  background: var(--ink); color: #fff; font-weight: 800; font-size: .85rem;
+  display: grid; place-items: center;
+}
+.dc-rank.top3 { background: var(--accent); }
+
+.dc-thumb {
+  width: 72px; height: 72px; flex: none; border-radius: var(--radius-s);
+  overflow: hidden; background: #eef3e4;
+}
+.dc-thumb svg { width: 100%; height: 100%; }
+
+.dc-body { flex: 1; min-width: 0; }
+.dc-title { display: flex; align-items: center; gap: .45rem; }
+.dc-name {
+  font-weight: 700; font-size: .96rem; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.discover-card .badge { font-size: .66rem; padding: .12rem .42rem; flex: none; }
+.discover-card .statline { font-size: .82rem; gap: .15rem .5rem; margin-top: .2rem; }
+.discover-card .statline .dc-asc { display: inline-flex; align-items: center; gap: .15rem; }
+.discover-card .statline svg { width: 13px; height: 13px; }
+.dc-owner {
+  color: var(--muted); font-size: .78rem; margin-top: .2rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.dc-like {
+  flex: none; display: flex; flex-direction: column; align-items: center; gap: .05rem;
+  background: none; border: none; cursor: pointer; color: var(--muted);
+  font: 700 .74rem var(--font); padding: .35rem .3rem; border-radius: 8px;
+  transition: background .15s, color .15s;
+}
+.dc-like svg { width: 20px; height: 20px; }
+.dc-like:hover { background: var(--surface-2); color: var(--ink-soft); }
+.dc-like.liked { color: var(--danger); }
+.dc-like.liked:hover { color: var(--danger); }
+
+/* ---------- kaart-overlay ---------- */
+.map-holder .discover-search-here {
+  position: absolute; bottom: 1.3rem; left: 50%; transform: translateX(-50%);
+  z-index: 700; box-shadow: var(--shadow-pop);
+}
+
+.discover-error { text-align: center; color: var(--danger); padding: 2rem 1rem; font-weight: 600; }
+
+/* ---------- responsief: kaart boven, paneel eronder ---------- */
+@media (max-width: 760px) {
+  main.page-wide.discover { flex-direction: column; }
+  .map-holder { order: -1; flex: none; height: 45vh; }
+  .discover-panel {
+    width: 100%; flex: 1;
+    border-right: none; border-top: 1px solid var(--line);
+  }
+}

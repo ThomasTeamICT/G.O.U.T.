@@ -1,0 +1,124 @@
+/* Activiteiten, activiteitdetail, statistieken en profiel. */
+
+/* ---------- page-head knop ---------- */
+.page-head .head-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* ---------- activiteitkaart ---------- */
+.act-card .statline { margin-top: .35rem; }
+.act-card .statline svg { width: 15px; height: 15px; color: var(--muted); }
+.act-card .statline span { display: inline-flex; align-items: center; gap: .2rem; }
+.ac-meta {
+  display: flex; align-items: center; gap: .35rem .5rem; flex-wrap: wrap;
+  color: var(--muted); font-size: .84rem; margin-top: .35rem;
+}
+.ac-meta .badge { font-size: .68rem; padding: .12rem .45rem; }
+.ac-meta .badge svg { width: 12px; height: 12px; }
+
+/* ---------- uploadmodal ---------- */
+.up-hint { color: var(--muted); font-size: .82rem; margin: .3rem 0 1rem; }
+.up-drop {
+  border: 2px dashed var(--line); border-radius: var(--radius-s);
+  padding: 1.4rem 1rem; text-align: center; color: var(--muted); cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.up-drop:hover { border-color: var(--green); background: var(--surface-2); }
+.up-drop svg { width: 34px; height: 34px; margin: 0 auto .5rem; color: var(--line); }
+.up-drop b { color: var(--ink-soft); }
+.up-file { margin-bottom: .3rem; }
+.up-notime {
+  display: flex; gap: .5rem; align-items: flex-start;
+  background: var(--accent-soft); color: var(--ink-soft);
+  border-radius: var(--radius-s); padding: .6rem .75rem; font-size: .84rem; margin-bottom: .2rem;
+}
+.up-notime svg { width: 17px; height: 17px; flex: none; margin-top: .1rem; color: var(--accent); }
+
+/* ---------- activiteitdetail ---------- */
+.map-sized { position: relative; width: 100%; }
+.map-sized .map-holder { position: absolute; inset: 0; }
+.detail-map { height: 50vh; min-height: 320px; background: #e9e4d8; }
+.back-fab { position: absolute; top: 12px; left: 12px; z-index: 1000; box-shadow: var(--shadow); }
+
+.detail-headline { display: flex; align-items: flex-start; gap: .6rem; flex-wrap: wrap; }
+.detail-headline h1 { flex: 1; min-width: 200px; margin: 0; }
+.detail-headline .btn-icon { margin-top: .2rem; }
+.detail-meta {
+  display: flex; align-items: center; gap: .35rem .6rem; flex-wrap: wrap;
+  color: var(--muted); font-size: .95rem; margin: .4rem 0 1.1rem;
+}
+.detail-meta .sport { display: inline-flex; align-items: center; gap: .35rem; color: var(--ink-soft); font-weight: 600; }
+.detail-meta .sport svg { width: 18px; height: 18px; }
+.detail-meta a { font-weight: 600; }
+
+.stat-block .v { display: inline-flex; align-items: baseline; }
+.stat-block .v svg { width: 17px; height: 17px; align-self: center; margin-right: .15rem; color: var(--muted); }
+.section-title { margin: 1.6rem 0 .6rem; }
+.elev-card { padding: 1rem 1.1rem; }
+.elev-card .elev { margin-top: .3rem; }
+.detail-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1.4rem 0 .3rem; }
+
+/* ---------- statistieken ---------- */
+.stats-section-title { margin: 1.8rem 0 .7rem; }
+.sport-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: .8rem; }
+.sport-card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1rem 1.1rem; }
+.sport-card .sc-head { display: flex; align-items: center; gap: .5rem; margin-bottom: .7rem; }
+.sport-card .sc-icon { width: 30px; height: 30px; border-radius: 999px; background: var(--green); color: #fff; display: grid; place-items: center; flex: none; }
+.sport-card .sc-icon svg { width: 17px; height: 17px; }
+.sport-card .sc-title { font-weight: 800; font-size: 1rem; }
+.sport-card .sc-row { display: flex; justify-content: space-between; align-items: baseline; padding: .28rem 0; border-top: 1px solid var(--line); }
+.sport-card .sc-row:first-of-type { border-top: none; }
+.sport-card .sc-row .lbl { color: var(--muted); font-size: .84rem; }
+.sport-card .sc-row .val { font-weight: 700; }
+.sport-card.dim { opacity: .55; }
+
+/* ---------- maandgrafiek ---------- */
+.chart-card { padding: 1.1rem 1.2rem 1rem; }
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.chart-legend { display: flex; gap: .9rem; flex-wrap: wrap; }
+.chart-legend .lg { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem; color: var(--ink-soft); font-weight: 600; }
+.chart-legend .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.chart-wrap { width: 100%; overflow-x: auto; }
+.chart-wrap svg { width: 100%; min-width: 460px; height: auto; display: block; }
+.chart-wrap svg text { font-family: var(--font); }
+.chart-wrap rect.bar { transition: opacity .12s; }
+.chart-wrap rect.bar:hover { opacity: .8; }
+
+/* ---------- records ---------- */
+.record-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: .8rem; }
+.record-card {
+  display: flex; align-items: center; gap: .9rem; cursor: pointer;
+  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 1rem 1.1rem; transition: box-shadow .15s, transform .15s;
+}
+.record-card:hover { box-shadow: var(--shadow-pop); transform: translateY(-1px); }
+.record-card .rc-ico { width: 42px; height: 42px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; flex: none; }
+.record-card .rc-ico svg { width: 22px; height: 22px; }
+.record-card .rc-k { color: var(--muted); font-size: .8rem; font-weight: 600; }
+.record-card .rc-v { font-size: 1.25rem; font-weight: 800; letter-spacing: -.02em; }
+.record-card .rc-name { color: var(--ink-soft); font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- profiel ---------- */
+main.page.profile-page { max-width: 560px; }
+.profile-card + .profile-card { margin-top: 1rem; }
+.profile-top { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.2rem; }
+.avatar-big { width: 66px; height: 66px; border-radius: 999px; color: #fff; font-weight: 800; font-size: 1.7rem; display: grid; place-items: center; flex: none; }
+.profile-top .pt-name { font-weight: 800; font-size: 1.15rem; }
+.profile-top .pt-mail { color: var(--muted); font-size: .88rem; }
+.swatch-row { display: flex; gap: .55rem; flex-wrap: wrap; }
+.swatch {
+  width: 36px; height: 36px; border-radius: 999px; cursor: pointer;
+  border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line);
+  display: grid; place-items: center; padding: 0;
+}
+.swatch:hover { box-shadow: 0 0 0 2px var(--muted); }
+.swatch.active { box-shadow: 0 0 0 2px var(--ink); }
+.swatch svg { width: 18px; height: 18px; color: #fff; }
+.profile-card h2 { margin-bottom: 1rem; }
+.profile-hint { color: var(--muted); font-size: .88rem; margin-bottom: 1rem; }
+.field-muted .input:disabled, .input[readonly] { color: var(--muted); background: var(--surface-2); cursor: default; }
+
+@media (max-width: 760px) {
+  .detail-map { height: 40vh; min-height: 260px; }
+  .sport-cards { grid-template-columns: 1fr; }
+  .record-cards { grid-template-columns: 1fr; }
+  .page-head .head-actions .btn span.lbl { display: none; }
+}

@@ -33,6 +33,7 @@ export function routeSummary(row, viewerId = null) {
     shareToken: viewerId != null && viewerId === row.user_id ? row.share_token : null,
     likes,
     liked,
+    isOwner: viewerId != null && viewerId === row.user_id,
     ownerName: row.owner_name ?? undefined,
     source: row.source,
     startLat: row.start_lat,

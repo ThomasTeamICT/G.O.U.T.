@@ -1,0 +1,77 @@
+/* Planner — zwevende panelen over de kaart. Basiscomponenten (sport-picker,
+   btn, input, card, statline) komen uit style.css; hier vooral positionering. */
+
+/* linksboven: zoeken + sport-picker */
+.plan-topleft {
+  position: absolute; top: 12px; left: 52px; z-index: 800;
+  display: flex; flex-direction: column; gap: .5rem;
+  max-width: min(320px, calc(100% - 64px));
+}
+.plan-topleft .sport-picker { align-self: flex-start; }
+.sp-label { display: inline; }
+
+.plan-search { position: relative; }
+.plan-search .input-search {
+  width: 260px; max-width: 100%;
+  box-shadow: var(--shadow); border-color: transparent;
+}
+.plan-results {
+  position: absolute; top: calc(100% + .35rem); left: 0; right: 0;
+  background: var(--surface); border-radius: var(--radius-s);
+  box-shadow: var(--shadow-pop); overflow: hidden auto; max-height: 264px; z-index: 820;
+}
+.plan-result {
+  display: flex; gap: .5rem; align-items: center; cursor: pointer;
+  padding: .55rem .7rem; font-size: .88rem; color: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.plan-result:last-child { border-bottom: none; }
+.plan-result:hover { background: var(--surface-2); }
+.plan-result svg { width: 16px; height: 16px; color: var(--muted); flex: none; }
+.plan-result span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-result-empty { color: var(--muted); cursor: default; }
+.plan-result-empty:hover { background: none; }
+
+/* rechtsboven: knoppenrij */
+.plan-topright { position: absolute; top: 12px; right: 52px; z-index: 800; }
+.plan-actions { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
+.plan-actions .btn-icon { box-shadow: var(--shadow); }
+.btn-icon.active { background: var(--green); border-color: var(--green); color: #fff; }
+.btn-icon:disabled { opacity: .45; cursor: not-allowed; }
+
+/* hint bij eerste gebruik */
+.plan-hint {
+  position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 700; pointer-events: none; text-align: center;
+  background: var(--surface); color: var(--ink-soft); font-weight: 600;
+  padding: 1rem 1.3rem; border-radius: var(--radius); box-shadow: var(--shadow-pop);
+  max-width: min(320px, calc(100% - 40px));
+}
+.plan-hint svg { width: 32px; height: 32px; margin: 0 auto .5rem; color: var(--green); }
+
+/* statsbalk onderaan */
+.plan-stats {
+  position: absolute; left: 0; right: 0; bottom: 24px; margin: 0 auto; z-index: 800;
+  width: min(660px, calc(100% - 24px)); padding: .7rem .9rem;
+}
+.plan-stats-row { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
+.plan-stats-row .statline { flex: 1; min-width: 150px; }
+.plan-stats-actions { display: flex; gap: .4rem; align-items: center; margin-left: auto; }
+.stat-ico { display: inline-flex; align-items: center; gap: .25rem; }
+.stat-ico svg { width: 15px; height: 15px; color: var(--muted); }
+.plan-chevron svg { transition: transform .15s; }
+.plan-chevron.open svg { transform: rotate(180deg); }
+
+.plan-elev { margin-top: .7rem; border-top: 1px solid var(--line); padding-top: .6rem; }
+.plan-elev-empty { color: var(--muted); font-size: .85rem; text-align: center; padding: 1.2rem 0; }
+
+/* mobiel */
+@media (max-width: 760px) {
+  .plan-topright { top: 12px; right: 12px; }
+  .plan-actions { flex-wrap: nowrap; gap: .3rem; }
+  .plan-actions .btn-icon { padding: .5rem; }
+  .plan-topleft { top: 56px; left: 52px; max-width: calc(100% - 64px); }
+  .plan-search .input-search { width: 100%; }
+  .plan-topleft .sport-picker .sp-label { display: none; }
+  .plan-stats { width: calc(100% - 16px); bottom: 12px; margin: 0 auto; }
+}

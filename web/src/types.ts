@@ -29,6 +29,7 @@ export interface RouteSummary {
   shareToken: string | null;
   likes: number;
   liked: boolean;
+  isOwner: boolean;
   ownerName?: string;
   source: 'gepland' | 'geimporteerd';
   startLat: number | null;
