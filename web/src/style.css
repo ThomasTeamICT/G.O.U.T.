@@ -1,0 +1,306 @@
+/* ===================================================================
+   G.O.U.T. design system — warm, rustig, outdoors. Eén bron van stijl.
+   =================================================================== */
+
+:root {
+  --bg: #f6f2ea;
+  --surface: #ffffff;
+  --surface-2: #efe9dc;
+  --ink: #26291f;
+  --ink-soft: #4c4f42;
+  --muted: #7d7a6c;
+  --line: #e3dccc;
+  --green: #3d5a3c;
+  --green-deep: #2c412c;
+  --accent: #e8590c;
+  --accent-hover: #cf4d08;
+  --accent-soft: #fdeadd;
+  --route: #3557e0;
+  --route-soft: rgba(53, 87, 224, 0.25);
+  --easy: #4c7a34;
+  --medium: #5f6b39;
+  --hard: #443c2c;
+  --danger: #b3341f;
+  --radius: 14px;
+  --radius-s: 9px;
+  --shadow: 0 1px 2px rgba(38, 41, 31, .06), 0 6px 24px -8px rgba(38, 41, 31, .14);
+  --shadow-pop: 0 4px 10px rgba(38, 41, 31, .10), 0 18px 50px -12px rgba(38, 41, 31, .28);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+#app { min-height: 100vh; display: flex; flex-direction: column; }
+
+h1, h2, h3 { line-height: 1.15; margin: 0 0 .5rem; letter-spacing: -0.02em; }
+h1 { font-size: 1.9rem; font-weight: 800; }
+h2 { font-size: 1.35rem; font-weight: 800; }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0 0 .75rem; }
+a { color: var(--green); }
+svg { display: block; }
+
+/* ---------- knoppen ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: .45rem;
+  border: none; cursor: pointer; text-decoration: none;
+  font: 600 .95rem var(--font);
+  padding: .62rem 1.15rem; border-radius: 999px;
+  background: var(--surface-2); color: var(--ink);
+  transition: background .15s, transform .05s, box-shadow .15s;
+  white-space: nowrap;
+}
+.btn:hover { background: #e6dfd0; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn svg { width: 18px; height: 18px; flex: none; }
+
+.btn-primary { background: var(--accent); color: #fff; box-shadow: var(--shadow); }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-green { background: var(--green); color: #fff; }
+.btn-green:hover { background: var(--green-deep); }
+.btn-ghost { background: transparent; }
+.btn-ghost:hover { background: rgba(38,41,31,.06); }
+.btn-danger { background: transparent; color: var(--danger); }
+.btn-danger:hover { background: #f9e5e1; }
+.btn-icon {
+  padding: .55rem; border-radius: 999px; background: var(--surface);
+  border: 1px solid var(--line); color: var(--ink-soft);
+}
+.btn-icon:hover { background: var(--surface-2); }
+.btn-sm { padding: .4rem .8rem; font-size: .85rem; }
+
+/* ---------- formulieren ---------- */
+label.field { display: block; margin-bottom: .9rem; }
+label.field > span { display: block; font-weight: 600; font-size: .85rem; margin-bottom: .3rem; color: var(--ink-soft); }
+.input, select.input, textarea.input {
+  width: 100%; font: 400 .95rem var(--font); color: var(--ink);
+  padding: .6rem .85rem; border: 1.5px solid var(--line); border-radius: var(--radius-s);
+  background: var(--surface); outline: none; transition: border-color .15s;
+}
+.input:focus { border-color: var(--green); }
+textarea.input { resize: vertical; min-height: 70px; }
+.input-search {
+  border-radius: 999px; padding-left: 2.4rem;
+  background: var(--surface) no-repeat .8rem center / 18px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237d7a6c' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+}
+
+/* ---------- kaarten & lijsten ---------- */
+.card {
+  background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 1.1rem 1.25rem;
+}
+.route-card {
+  display: grid; grid-template-columns: 116px 1fr auto; gap: 1rem;
+  align-items: center; cursor: pointer;
+  background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: .8rem;
+  transition: box-shadow .15s, transform .15s;
+}
+.route-card:hover { box-shadow: var(--shadow-pop); transform: translateY(-1px); }
+.route-card .thumb {
+  width: 116px; height: 116px; border-radius: var(--radius-s);
+  background: #eef3e4; overflow: hidden; position: relative;
+}
+.route-card .thumb svg { width: 100%; height: 100%; }
+.route-card .thumb .sporticon {
+  position: absolute; top: 6px; left: 6px; width: 26px; height: 26px;
+  background: var(--ink); color: #fff; border-radius: 999px;
+  display: grid; place-items: center;
+}
+.route-card .thumb .sporticon svg { width: 15px; height: 15px; }
+.route-card h3 { margin: .25rem 0 .2rem; }
+.route-card .meta { color: var(--muted); font-size: .85rem; }
+.route-card .actions { display: flex; gap: .4rem; align-self: start; }
+
+.statline { display: flex; flex-wrap: wrap; gap: .3rem .75rem; color: var(--ink-soft); font-size: .92rem; align-items: center; }
+.statline b { font-weight: 700; }
+.statline .sep { color: var(--line); }
+
+/* ---------- badges ---------- */
+.badge {
+  display: inline-flex; align-items: center; gap: .3rem;
+  font: 700 .78rem var(--font); color: #fff;
+  padding: .22rem .6rem; border-radius: 999px;
+}
+.badge-makkelijk { background: var(--easy); }
+.badge-gemiddeld { background: var(--medium); }
+.badge-zwaar { background: var(--hard); }
+.badge-neutral { background: var(--surface-2); color: var(--ink-soft); }
+.badge-public { background: var(--green); }
+
+/* ---------- topbar ---------- */
+.topbar {
+  display: flex; align-items: center; gap: 1rem;
+  padding: .6rem 1.2rem; background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 500;
+}
+.topbar .logo {
+  display: flex; align-items: baseline; gap: .5rem; text-decoration: none; color: var(--ink);
+  margin-right: .5rem;
+}
+.topbar .logo b { font-size: 1.25rem; font-weight: 800; letter-spacing: -.02em; }
+.topbar .logo span { font-size: .72rem; color: var(--muted); font-weight: 600; }
+.topbar nav { display: flex; gap: .15rem; flex: 1; }
+.topbar nav a {
+  text-decoration: none; color: var(--ink-soft); font-weight: 600; font-size: .92rem;
+  padding: .45rem .8rem; border-radius: 999px;
+}
+.topbar nav a:hover { background: rgba(38,41,31,.06); }
+.topbar nav a.active { background: var(--green); color: #fff; }
+.topbar .avatar {
+  width: 36px; height: 36px; border-radius: 999px; border: none; cursor: pointer;
+  color: #fff; font-weight: 800; font-size: .95rem; display: grid; place-items: center;
+}
+
+.menu {
+  position: absolute; right: 1rem; top: 54px; background: var(--surface);
+  border-radius: var(--radius-s); box-shadow: var(--shadow-pop); padding: .35rem;
+  min-width: 180px; z-index: 900;
+}
+.menu button, .menu a {
+  display: flex; gap: .5rem; align-items: center; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left; text-decoration: none;
+  font: 600 .9rem var(--font); color: var(--ink); padding: .55rem .7rem; border-radius: 7px;
+}
+.menu button:hover, .menu a:hover { background: var(--surface-2); }
+.menu button svg, .menu a svg { width: 17px; height: 17px; color: var(--muted); }
+
+/* ---------- layout ---------- */
+main.page { flex: 1; width: 100%; max-width: 1060px; margin: 0 auto; padding: 1.6rem 1.2rem 3rem; }
+main.page-wide { flex: 1; width: 100%; padding: 0; display: flex; min-height: 0; }
+.page-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.page-head h1 { margin: 0; flex: 1; }
+.page-sub { color: var(--muted); margin-top: -.9rem; margin-bottom: 1.2rem; }
+
+.filterbar { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1.1rem; }
+.chip {
+  border: 1px solid var(--line); background: var(--surface); cursor: pointer;
+  font: 600 .85rem var(--font); color: var(--ink-soft);
+  padding: .42rem .85rem; border-radius: 999px; display: inline-flex; gap: .4rem; align-items: center;
+}
+.chip svg { width: 15px; height: 15px; }
+.chip:hover { background: var(--surface-2); }
+.chip.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+.grid-list { display: grid; gap: .9rem; }
+
+.empty {
+  text-align: center; color: var(--muted); padding: 3.5rem 1rem;
+  border: 2px dashed var(--line); border-radius: var(--radius);
+}
+.empty svg { width: 42px; height: 42px; margin: 0 auto .8rem; color: var(--line); }
+
+/* ---------- statistiekblokken ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .8rem; }
+.stat-block { background: var(--surface); border-radius: var(--radius-s); box-shadow: var(--shadow); padding: .8rem 1rem; }
+.stat-block .v { font-size: 1.45rem; font-weight: 800; letter-spacing: -.02em; }
+.stat-block .v small { font-size: .85rem; font-weight: 600; color: var(--muted); margin-left: .15rem; }
+.stat-block .k { font-size: .8rem; color: var(--muted); font-weight: 600; }
+
+/* ---------- modals & toasts ---------- */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(38, 41, 31, .45);
+  display: grid; place-items: center; z-index: 1000; padding: 1rem;
+}
+.modal {
+  background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-pop);
+  width: 100%; max-width: 440px; padding: 1.4rem; max-height: 90vh; overflow: auto;
+}
+.modal h2 { margin-bottom: 1rem; }
+.modal .modal-actions { display: flex; justify-content: flex-end; gap: .6rem; margin-top: 1.2rem; }
+
+.toasts { position: fixed; bottom: 1.2rem; left: 50%; transform: translateX(-50%); z-index: 1200; display: grid; gap: .5rem; }
+.toast {
+  background: var(--ink); color: #fff; font-weight: 600; font-size: .9rem;
+  padding: .7rem 1.2rem; border-radius: 999px; box-shadow: var(--shadow-pop);
+  animation: toast-in .2s ease-out;
+}
+.toast.error { background: var(--danger); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+
+.spinner {
+  width: 22px; height: 22px; border-radius: 999px;
+  border: 3px solid var(--line); border-top-color: var(--accent);
+  animation: spin .7s linear infinite; margin: 2rem auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- kaart (Leaflet) ---------- */
+.map-holder { position: relative; flex: 1; min-height: 0; }
+.map-holder .leaflet-container { position: absolute; inset: 0; font: inherit; background: #e9e4d8; }
+.leaflet-container .leaflet-control-attribution { font-size: .65rem; background: rgba(246,242,234,.8); }
+
+.wpt-icon {
+  display: grid; place-items: center; color: #fff; font-weight: 800;
+  border-radius: 999px; border: 2.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+  width: 100%; height: 100%; font-size: .8rem;
+}
+.wpt-start { background: var(--green); }
+.wpt-end { background: var(--accent); }
+.wpt-via { background: var(--ink); font-size: .68rem; }
+.pos-dot {
+  width: 100%; height: 100%; border-radius: 999px;
+  background: #2b6fe0; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(43,111,224,.4), 0 1px 6px rgba(0,0,0,.4);
+}
+
+/* ---------- hoogteprofiel ---------- */
+.elev { position: relative; }
+.elev svg { width: 100%; height: 100%; display: block; }
+.elev .elev-tip {
+  position: absolute; pointer-events: none; background: var(--ink); color: #fff;
+  font: 600 .75rem var(--font); padding: .25rem .5rem; border-radius: 6px;
+  transform: translate(-50%, -130%); white-space: nowrap; z-index: 5;
+}
+
+/* ---------- auth ---------- */
+.auth-wrap { flex: 1; display: grid; place-items: center; padding: 1.5rem;
+  background:
+    radial-gradient(60vw 40vh at 85% 10%, rgba(61,90,60,.10), transparent),
+    radial-gradient(50vw 40vh at 10% 90%, rgba(232,89,12,.08), transparent),
+    var(--bg);
+}
+.auth-card { width: 100%; max-width: 400px; }
+.auth-card .logo-big { text-align: center; margin-bottom: 1.4rem; }
+.auth-card .logo-big b { font-size: 2rem; letter-spacing: -.03em; }
+.auth-card .logo-big div { color: var(--muted); font-weight: 600; font-size: .85rem; }
+.tabs { display: flex; background: var(--surface-2); padding: .25rem; border-radius: 999px; margin-bottom: 1.2rem; }
+.tabs button {
+  flex: 1; border: none; background: none; cursor: pointer; font: 700 .9rem var(--font);
+  color: var(--ink-soft); padding: .5rem; border-radius: 999px;
+}
+.tabs button.active { background: var(--surface); box-shadow: var(--shadow); color: var(--ink); }
+
+/* ---------- planner-specifiek gedeelde stukken ---------- */
+.sport-picker { display: flex; gap: .3rem; background: var(--surface); border-radius: 999px; padding: .25rem; box-shadow: var(--shadow); }
+.sport-picker button {
+  border: none; background: none; cursor: pointer; border-radius: 999px;
+  padding: .45rem .8rem; font: 600 .85rem var(--font); color: var(--ink-soft);
+  display: inline-flex; gap: .4rem; align-items: center;
+}
+.sport-picker button svg { width: 17px; height: 17px; }
+.sport-picker button.active { background: var(--green); color: #fff; }
+
+/* ---------- responsief ---------- */
+@media (max-width: 760px) {
+  .topbar { padding: .5rem .8rem; gap: .5rem; overflow-x: auto; }
+  .topbar .logo span { display: none; }
+  .topbar nav a { padding: .4rem .6rem; font-size: .85rem; }
+  .route-card { grid-template-columns: 84px 1fr; }
+  .route-card .thumb { width: 84px; height: 84px; }
+  .route-card .actions { grid-column: 1 / -1; justify-content: flex-end; }
+  main.page { padding: 1rem .8rem 2.5rem; }
+  h1 { font-size: 1.5rem; }
+}

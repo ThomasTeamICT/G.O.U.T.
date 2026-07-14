@@ -1,0 +1,10 @@
+{
+  "name": "G.O.U.T. — Gewoon Op Uw Tempo",
+  "short_name": "G.O.U.T.",
+  "description": "Lichte routeplanner en GPX-editor voor wandelen, fietsen en mountainbike.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f2ea",
+  "theme_color": "#3d5a3c",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
