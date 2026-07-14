@@ -10,17 +10,22 @@ import {
 import { createMap, drawTrack, fitToTrack, waypointIcon, hoverMarker } from '../lib/map';
 import { renderElevation } from '../lib/elevation';
 import type { RouteFull } from '../types';
+import { session } from '../main';
 import L from 'leaflet';
 
 export function sharedView(container: HTMLElement, params: Record<string, string>) {
   let map: L.Map | null = null;
   let elev: { destroy(): void } | null = null;
 
-  const header = el('div', { class: 'shared-header' },
-    el('a', { class: 'logo', href: '#/login' }, el('b', {}, 'G.O.U.T.'), el('span', {}, 'gewoon op uw tempo')),
-    el('a', { class: 'btn btn-primary btn-sm', href: '#/login' }, 'Zelf routes maken'),
-  );
-  container.append(header);
+  // Ingelogde gebruikers zien de gewone app-topbar al; anders eigen kop.
+  let header: HTMLElement | null = null;
+  if (!session.user) {
+    header = el('div', { class: 'shared-header' },
+      el('a', { class: 'logo', href: '#/login' }, el('b', {}, 'G.O.U.T.'), el('span', {}, 'gewoon op uw tempo')),
+      el('a', { class: 'btn btn-primary btn-sm', href: '#/login' }, 'Zelf routes maken'),
+    );
+    container.append(header);
+  }
 
   const root = el('div', {});
   container.append(root);
@@ -109,6 +114,6 @@ export function sharedView(container: HTMLElement, params: Record<string, string
   return () => {
     elev?.destroy();
     if (map) { map.remove(); map = null; }
-    header.remove();
+    header?.remove();
   };
 }

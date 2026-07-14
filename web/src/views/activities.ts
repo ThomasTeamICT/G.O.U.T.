@@ -106,7 +106,7 @@ export function activitiesView(container: HTMLElement) {
 
   function renderList() {
     const filtered = sport ? all.filter((a) => a.sport === sport) : all;
-    const n = all.length;
+    const n = filtered.length;
     sub.textContent = `${n} ${n === 1 ? 'activiteit' : 'activiteiten'}`;
     listHolder.innerHTML = '';
 

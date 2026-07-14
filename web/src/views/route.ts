@@ -375,6 +375,21 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
   ));
 
   /* --- geolocatie --- */
+  // Voortgang mag niet naar de heenweg terugspringen op heen-en-terug-stukken:
+  // zoek rond de vorige positie en val alleen globaal terug als we ver van de route zijn.
+  let lastProgressIdx = 0;
+  function nearestOnRoute(lon: number, lat: number) {
+    const start = Math.max(0, lastProgressIdx - 30);
+    const end = Math.min(track.length - 1, lastProgressIdx + 400);
+    let best = lastProgressIdx, bestD = Infinity;
+    for (let i = start; i <= end; i++) {
+      const d = haversine(track[i][0], track[i][1], lon, lat);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (bestD > 250) return nearestPointIndex(track, lon, lat);
+    return { index: best, distM: bestD };
+  }
+
   function onPos(pos: GeolocationPosition) {
     if (closed) return;
     const lat = pos.coords.latitude, lon = pos.coords.longitude;
@@ -387,7 +402,8 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
     else { accCircle.setLatLng([lat, lon]); accCircle.setRadius(acc); }
     if (follow) liveMap.setView([lat, lon]);
 
-    const { index, distM } = nearestPointIndex(track, lon, lat);
+    const { index, distM } = nearestOnRoute(lon, lat);
+    lastProgressIdx = index;
     const done = cum[index];
     const togo = Math.max(0, total - done);
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;

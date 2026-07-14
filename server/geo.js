@@ -144,7 +144,7 @@ export function activityStats(track) {
       if (typeof p[3] !== 'number') continue;
       if (prev) {
         const dt = p[3] - prev[3];
-        if (dt > 0 && dt <= 60) {
+        if (dt > 0 && dt <= 900) {
           const dd = haversine(prev[0], prev[1], p[0], p[1]);
           if (dd / dt > 0.5) moving += dt;
         }

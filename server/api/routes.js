@@ -38,7 +38,8 @@ function trackError(track) {
       return 'Coördinaten liggen buiten bereik.';
     if (ele !== undefined && ele !== null && (typeof ele !== 'number' || Number.isNaN(ele)))
       return 'Ongeldige hoogte in de track.';
-    if (t !== undefined && t !== null && typeof t !== 'number')
+    if (t !== undefined && t !== null &&
+        (typeof t !== 'number' || Number.isNaN(t) || t < 0 || t >= 4102444800))
       return 'Ongeldige tijd in de track.';
   }
   return null;
@@ -218,6 +219,10 @@ function likeGuard(req, res) {
   if (row.visibility !== 'public') {
     if (row.user_id === req.user.id) res.status(400).json({ error: 'Je kan alleen openbare routes liken.' });
     else res.status(404).json({ error: 'Route niet gevonden.' });
+    return null;
+  }
+  if (row.user_id === req.user.id) {
+    res.status(400).json({ error: 'Je kan je eigen route niet liken.' });
     return null;
   }
   return row;

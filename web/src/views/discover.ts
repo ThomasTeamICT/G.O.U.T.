@@ -161,7 +161,10 @@ export function discoverView(container: HTMLElement): () => void {
     resultsEl.replaceChildren();
     if (!routes.length) {
       resultsEl.append(
-        el('div', { class: 'empty' }, svgEl(icons.compass), el('p', {}, opts.emptyMsg)),
+        el('div', { class: 'empty' }, svgEl(icons.compass), el('p', {}, opts.emptyMsg),
+          el('button', { class: 'btn btn-primary', onclick: () => navigate('/plan') },
+            svgEl(icons.plus), 'Route plannen'),
+        ),
       );
       return;
     }
@@ -179,14 +182,18 @@ export function discoverView(container: HTMLElement): () => void {
   }
 
   function renderCard(r: RouteSummary, rank?: number): HTMLElement {
-    const likeBtn = el('button', {
-      class: 'dc-like' + (r.liked ? ' liked' : ''),
-      title: r.liked ? 'Niet meer leuk vinden' : 'Vind ik leuk',
-      onclick: (e: MouseEvent) => { e.stopPropagation(); toggleLike(r, likeBtn); },
-    },
-      svgEl(r.liked ? icons.heartFill : icons.heart),
-      el('span', {}, String(r.likes)),
-    ) as HTMLButtonElement;
+    // Eigen routes kan je niet liken; toon dan enkel het aantal.
+    const likeBtn = r.isOwner
+      ? el('span', { class: 'dc-like', title: 'Jouw route' },
+          svgEl(icons.heart), el('span', {}, String(r.likes))) as unknown as HTMLButtonElement
+      : el('button', {
+          class: 'dc-like' + (r.liked ? ' liked' : ''),
+          title: r.liked ? 'Niet meer leuk vinden' : 'Vind ik leuk',
+          onclick: (e: MouseEvent) => { e.stopPropagation(); toggleLike(r, likeBtn); },
+        },
+          svgEl(r.liked ? icons.heartFill : icons.heart),
+          el('span', {}, String(r.likes)),
+        ) as HTMLButtonElement;
 
     return el('div', {
       class: 'discover-card',

@@ -35,7 +35,8 @@ function trackError(track) {
       return 'Coördinaten liggen buiten bereik.';
     if (ele !== undefined && ele !== null && (typeof ele !== 'number' || Number.isNaN(ele)))
       return 'Ongeldige hoogte in de track.';
-    if (t !== undefined && t !== null && (typeof t !== 'number' || Number.isNaN(t)))
+    if (t !== undefined && t !== null &&
+        (typeof t !== 'number' || Number.isNaN(t) || t < 0 || t >= 4102444800))
       return 'Ongeldige tijd in de track.';
   }
   return null;
@@ -54,7 +55,7 @@ function resolveStartedAt(startedAt, track) {
     const d = new Date(startedAt);
     if (!Number.isNaN(d.getTime())) return d.toISOString();
   }
-  const first = track.find((p) => typeof p[3] === 'number' && !Number.isNaN(p[3]));
+  const first = track.find((p) => typeof p[3] === 'number' && p[3] >= 0 && p[3] < 4102444800);
   if (first) return new Date(first[3] * 1000).toISOString();
   return null;
 }

@@ -224,3 +224,29 @@ test('beveiliging: auth verplicht, validatie', async () => {
   r = await c.req('GET', '/api/routing?lonlats=kwaad&sport=wandelen');
   assert.equal(r.status, 400, 'ongeldige lonlats geweigerd');
 });
+
+test('review-fixes: tijdvalidatie, spaarzame logging, eigen like', async () => {
+  const c = client();
+  await c.req('POST', '/api/auth/register', { email: 'fix@test.be', name: 'Fixer', password: 'wachtwoord1' });
+
+  // absurde timestamps netjes geweigerd (geen 500 meer op gpx-download)
+  const badTrack = [[4.5, 50.8, 100, 1e15], [4.6, 50.9, 110, 1e15]];
+  let r = await c.req('POST', '/api/routes', { name: 'x', sport: 'wandelen', track: badTrack });
+  assert.equal(r.status, 400, 'route met onmogelijke tijd geweigerd');
+  r = await c.req('POST', '/api/activities', { name: 'x', sport: 'wandelen', track: badTrack });
+  assert.equal(r.status, 400, 'activiteit met onmogelijke tijd geweigerd');
+
+  // spaarzaam geloggede GPX (punt om de 90 s, wandeltempo) telt als bewegen
+  const sparse = [];
+  for (let i = 0; i <= 20; i++) sparse.push([4.18 + 0.0018 * i, 50.93, 20, 1750000000 + i * 90]);
+  r = await c.req('POST', '/api/activities', { name: 'Spaarzaam', sport: 'wandelen', track: sparse });
+  assert.equal(r.status, 201);
+  assert.ok(r.data.activity.movingS > 0, `bewegingstijd bij 90s-intervallen (kreeg ${r.data.activity.movingS})`);
+
+  // eigen openbare route liken kan niet
+  r = await c.req('POST', '/api/routes', { name: 'Eigen lus', sport: 'wandelen', track: TRACK });
+  const rid = r.data.route.id;
+  await c.req('PUT', `/api/routes/${rid}`, { visibility: 'public' });
+  r = await c.req('POST', `/api/routes/${rid}/like`);
+  assert.equal(r.status, 400, 'eigen route liken geblokkeerd');
+});

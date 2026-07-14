@@ -12,7 +12,7 @@ export function buildGpx({ name, description = '', track, sport = '' }) {
     .map((p) => {
       const ele = typeof p[2] === 'number' && !Number.isNaN(p[2])
         ? `<ele>${Math.round(p[2] * 10) / 10}</ele>` : '';
-      const time = typeof p[3] === 'number'
+      const time = typeof p[3] === 'number' && p[3] >= 0 && p[3] < 4102444800
         ? `<time>${new Date(p[3] * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')}</time>` : '';
       return `      <trkpt lat="${p[1]}" lon="${p[0]}">${ele}${time}</trkpt>`;
     })

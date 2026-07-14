@@ -47,8 +47,9 @@ export function fmtM(m: number): string {
 }
 
 export function fmtDur(s: number): string {
-  const h = Math.floor(s / 3600);
-  const m = Math.round((s % 3600) / 60);
+  const totalMin = Math.round(s / 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
   if (h === 0) return `${m} min`;
   return `${h}:${String(m).padStart(2, '0')} u`;
 }

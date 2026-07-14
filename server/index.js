@@ -11,6 +11,7 @@ import { discoverRouter } from './api/discover.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.set('trust proxy', 1);
 
 app.disable('x-powered-by');
 app.use((_req, res, next) => {

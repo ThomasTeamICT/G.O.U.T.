@@ -26,13 +26,14 @@ const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 // --- sessies ---
 
-function createSession(res, userId) {
+function createSession(req, res, userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + SESSION_DAYS * 864e5);
   db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
     .run(sha256(token), userId, expires.toISOString());
+  const secure = req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https');
   res.setHeader('Set-Cookie',
-    `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`);
+    `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}; Max-Age=${SESSION_DAYS * 86400}`);
 }
 
 function readToken(req) {
@@ -101,7 +102,7 @@ authRouter.post('/register', rateLimit, (req, res) => {
     'INSERT INTO users (email, name, pass_hash, avatar_color) VALUES (?, ?, ?, ?)'
   ).run(String(email).trim(), String(name).trim(), hashPassword(String(password)),
         colors[Math.floor(Math.random() * colors.length)]);
-  createSession(res, Number(info.lastInsertRowid));
+  createSession(req, res, Number(info.lastInsertRowid));
   const u = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(info.lastInsertRowid));
   res.json({ user: publicUser(u) });
 });
@@ -111,7 +112,7 @@ authRouter.post('/login', rateLimit, (req, res) => {
   const u = db.prepare('SELECT * FROM users WHERE email = ?').get(String(email || '').trim());
   if (!u || !verifyPassword(String(password || ''), u.pass_hash))
     return res.status(401).json({ error: 'E-mailadres of wachtwoord klopt niet.' });
-  createSession(res, u.id);
+  createSession(req, res, u.id);
   res.json({ user: publicUser(u) });
 });
 
