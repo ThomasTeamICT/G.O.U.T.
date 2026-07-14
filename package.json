@@ -1,14 +1,14 @@
 {
   "name": "gout",
   "version": "1.0.0",
-  "description": "G.O.U.T. — Gewoon Op Uw Tempo. Lichte routeplanner & GPX-editor voor wandelen, fietsen en mountainbike.",
+  "description": "G.O.U.T. \u2014 Gewoon Op Uw Tempo. Lichte routeplanner & GPX-editor voor wandelen, fietsen en mountainbike.",
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "node scripts/dev.js",
-    "dev:mock": "MOCK_BROUTER=1 node scripts/dev.js",
+    "dev": "node scripts/check-node.js && node scripts/dev.js",
+    "dev:mock": "node scripts/check-node.js && node scripts/dev.js --mock",
     "build": "vite build web",
-    "start": "node server/index.js",
+    "start": "node scripts/check-node.js && node server/index.js",
     "seed": "node scripts/seed.js",
     "typecheck": "tsc --noEmit -p web",
     "test": "node --no-warnings --test server/test/api.test.js",
