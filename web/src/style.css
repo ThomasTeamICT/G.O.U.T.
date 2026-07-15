@@ -294,7 +294,7 @@ main.page-wide { flex: 1; width: 100%; padding: 0; display: flex; min-height: 0;
 .sport-picker button.active { background: var(--green); color: #fff; }
 
 /* ---------- responsief ---------- */
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .topbar { padding: .5rem .8rem; gap: .4rem; overflow-x: auto; flex-wrap: nowrap; }
   .topbar .logo b { font-size: 1.05rem; }
   .topbar .logo span { display: none; }
