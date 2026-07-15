@@ -7,10 +7,10 @@ import { api, ApiError } from '../api';
 import { navigate } from '../router';
 import { createMap } from '../lib/map';
 import {
-  el, svgEl, icons, toast, debounce,
-  fmtKm, fmtM, fmtDur, difficultyBadge, svgMinimap, sportIcon, SPORTS,
+  el, svgEl, icons, toast, debounce, confirmDialog,
+  fmtKm, fmtM, fmtDur, difficultyBadge, svgMinimap, sportIcon, sportLabel, SPORTS,
 } from '../ui';
-import type { RouteSummary, Sport } from '../types';
+import type { RouteSummary, Sport, Highlight } from '../types';
 
 interface GeoResult { name: string; lat: number; lon: number }
 type Tab = 'area' | 'top';
@@ -29,6 +29,8 @@ export function discoverView(container: HTMLElement): () => void {
   let sport: Sport | null = null;
   let ready = false;         // pas na eerste zoekactie op moveend reageren
   let suppressMove = false;  // eigen (programmatische) kaartbewegingen negeren
+  let showHighlights = localStorage.getItem('gout.discoverHighlights') === '1';
+  let destroyed = false;     // view verlaten: laat debounced werk niet meer op de kaart komen
   const polyById = new Map<number, L.Polyline>();
 
   // --- paneel-DOM ---
@@ -63,6 +65,8 @@ export function discoverView(container: HTMLElement): () => void {
 
   const map = createMap(mapHolder);
   const previewLayer = L.layerGroup().addTo(map);
+  const highlightLayer = L.layerGroup().addTo(map); // boven de previews
+  const reloadHighlights = debounce(() => { if (showHighlights) loadHighlights(); }, 600);
 
   const searchHereBtn = el('button', {
     class: 'btn btn-primary discover-search-here', hidden: true,
@@ -73,6 +77,7 @@ export function discoverView(container: HTMLElement): () => void {
   const hideSearchHere = () => { searchHereBtn.hidden = true; };
 
   map.on('moveend', () => {
+    if (showHighlights) reloadHighlights();
     if (!ready) return;
     if (suppressMove) { suppressMove = false; return; }
     if (tab === 'area') searchHereBtn.hidden = false;
@@ -101,6 +106,19 @@ export function discoverView(container: HTMLElement): () => void {
   }
   updateChips();
 
+  // --- highlights-toggle ---
+  const hlChip = el('button', {
+    class: 'chip hl-chip', onclick: () => {
+      showHighlights = !showHighlights;
+      localStorage.setItem('gout.discoverHighlights', showHighlights ? '1' : '0');
+      hlChip.classList.toggle('active', showHighlights);
+      if (showHighlights) loadHighlights();
+      else clearHighlights();
+    },
+  }, svgEl(icons.flag), 'Highlights');
+  hlChip.classList.toggle('active', showHighlights);
+  filters.append(hlChip);
+
   // --- tabs ---
   function updateTabs() {
     tabAreaBtn.classList.toggle('active', tab === 'area');
@@ -119,6 +137,7 @@ export function discoverView(container: HTMLElement): () => void {
   function refresh() {
     if (tab === 'top') loadTop();
     else runSearch({ fit: false });
+    if (showHighlights) loadHighlights();
   }
 
   // --- kaart-previews ---
@@ -238,6 +257,121 @@ export function discoverView(container: HTMLElement): () => void {
     }
   }
 
+  // --- highlights-overlay ---
+  function flagIcon(): L.DivIcon {
+    return L.divIcon({
+      className: '', iconSize: [18, 18], iconAnchor: [9, 9],
+      html: `<div class="hl-flag">${icons.flag}</div>`,
+    });
+  }
+
+  function clearHighlights() { highlightLayer.clearLayers(); }
+
+  function drawHighlights(list: Highlight[]) {
+    highlightLayer.clearLayers();
+    for (const h of list) {
+      if (!h.track || h.track.length < 2) continue;
+      const latlngs = h.track.map(([lon, lat]) => [lat, lon] as [number, number]);
+      const line = L.polyline(latlngs, { color: '#e8590c', weight: 4, opacity: 0.7 });
+      line.on('click', (e: L.LeafletMouseEvent) => openHighlightPopup(h, e.latlng));
+      line.addTo(highlightLayer);
+      const mid = h.track[Math.floor(h.track.length / 2)];
+      const marker = L.marker([mid[1], mid[0]], { icon: flagIcon() });
+      marker.on('click', () => openHighlightPopup(h, L.latLng(mid[1], mid[0])));
+      marker.addTo(highlightLayer);
+    }
+  }
+
+  async function loadHighlights() {
+    if (destroyed || !showHighlights) return;
+    const b = map.getBounds();
+    const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
+      .map((n) => n.toFixed(6)).join(',');
+    const params = new URLSearchParams({ bbox });
+    if (sport) params.set('sport', sport);
+    try {
+      const { highlights } = await api.get<{ highlights: Highlight[] }>(`/api/highlights?${params}`);
+      if (showHighlights) drawHighlights(highlights);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Kon highlights niet laden.', 'error');
+    }
+  }
+
+  function hlSportIcon(s: Sport | 'alle'): string {
+    return s === 'alle' ? icons.compass : sportIcon(s);
+  }
+  function hlSportLabel(s: Sport | 'alle'): string {
+    return s === 'alle' ? 'Alle sporten' : sportLabel(s);
+  }
+
+  function openHighlightPopup(h: Highlight, latlng: L.LatLng) {
+    L.popup({ className: 'hl-popup', maxWidth: 260, autoPan: true })
+      .setLatLng(latlng)
+      .setContent(buildHighlightPopup(h))
+      .openOn(map);
+  }
+
+  function buildHighlightPopup(h: Highlight): HTMLElement {
+    let votes = h.votes;
+    let voted = h.voted;
+
+    const box = el('div', { class: 'hl-pop' });
+    box.append(
+      el('div', { class: 'hl-pop-name' }, h.name),
+      el('div', { class: 'hl-pop-sport' }, svgEl(hlSportIcon(h.sport)), hlSportLabel(h.sport)),
+      el('div', { class: 'hl-pop-owner' }, `door ${h.ownerName ?? 'onbekend'}`),
+    );
+
+    const desc = (h.description || '').trim();
+    if (desc) {
+      const short = desc.length > 150 ? desc.slice(0, 150).trimEnd() + '\u2026' : desc;
+      box.append(el('p', { class: 'hl-pop-desc' }, short));
+    }
+
+    const foot = el('div', { class: 'hl-pop-foot' });
+    if (h.isOwner) {
+      foot.append(
+        el('span', { class: 'hl-pop-votes' }, svgEl(icons.heart), el('span', {}, String(votes))),
+        el('span', { class: 'hl-pop-own' }, 'jouw highlight'),
+        el('button', {
+          class: 'btn-icon hl-pop-del', title: 'Verwijderen', onclick: async () => {
+            const okd = await confirmDialog('Highlight verwijderen?', `Wil je "${h.name}" verwijderen?`);
+            if (!okd) return;
+            try {
+              await api.del(`/api/highlights/${h.id}`);
+              toast('Highlight verwijderd.');
+              map.closePopup();
+              if (showHighlights) loadHighlights();
+            } catch (e) {
+              toast(e instanceof ApiError ? e.message : 'Kon highlight niet verwijderen.', 'error');
+            }
+          },
+        }, svgEl(icons.trash)),
+      );
+    } else {
+      const voteBtn = el('button', { class: 'hl-vote' });
+      const renderVote = () => {
+        voteBtn.className = 'hl-vote' + (voted ? ' voted' : '');
+        voteBtn.title = voted ? 'Stem intrekken' : 'Stem op deze highlight';
+        voteBtn.replaceChildren(svgEl(voted ? icons.heartFill : icons.heart), el('span', {}, String(votes)));
+      };
+      voteBtn.addEventListener('click', async () => {
+        try {
+          const r = voted
+            ? await api.del<{ votes: number; voted: boolean }>(`/api/highlights/${h.id}/vote`)
+            : await api.post<{ votes: number; voted: boolean }>(`/api/highlights/${h.id}/vote`);
+          votes = r.votes; voted = r.voted; h.votes = votes; h.voted = voted; renderVote();
+        } catch (e) {
+          toast(e instanceof ApiError ? e.message : 'Kon je stem niet opslaan.', 'error');
+        }
+      });
+      renderVote();
+      foot.append(voteBtn);
+    }
+    box.append(foot);
+    return box;
+  }
+
   // --- zoekacties ---
   async function runSearch({ fit }: { fit: boolean }) {
     showSpinner();
@@ -330,10 +464,12 @@ export function discoverView(container: HTMLElement): () => void {
     map.invalidateSize();
     await runSearch({ fit: false });
     ready = true;
+    if (showHighlights) loadHighlights();
   }, 0);
 
   // --- opruimen ---
   return () => {
+    destroyed = true;
     document.removeEventListener('mousedown', onOutside);
     map.remove();
   };

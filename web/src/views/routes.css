@@ -132,3 +132,14 @@ body.live-open .toasts { bottom: 15rem; }
   .shared-map { height: 40vh; }
   .page-head .head-actions .btn span.lbl { display: none; }
 }
+
+/* ---------- highlight markeren (markeer-modus) ---------- */
+.hl-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+  flex-wrap: wrap;
+  background: var(--accent-soft); color: var(--ink);
+  border: 1px solid var(--accent); border-radius: var(--radius-s);
+  padding: .6rem .9rem; margin: 0 0 .6rem;
+  font-weight: 600; font-size: .9rem;
+}
+.hl-banner .btn-sm { flex: none; }

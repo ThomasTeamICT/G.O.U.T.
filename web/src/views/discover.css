@@ -98,9 +98,46 @@ main.page-wide.discover { display: flex; min-height: 0; }
 /* ---------- responsief: kaart boven, paneel eronder ---------- */
 @media (max-width: 760px) {
   main.page-wide.discover { flex-direction: column; }
-  .map-holder { order: -1; flex: none; height: 45vh; }
+  main.page-wide.discover .map-holder { order: -1; flex: none; height: 45vh; }
   .discover-panel {
     width: 100%; flex: 1;
     border-right: none; border-top: 1px solid var(--line);
   }
 }
+
+/* ---------- highlights-overlay ---------- */
+.chip.hl-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip.hl-chip.active svg { color: #fff; }
+
+/* vlag-markertje op het middelste punt van een highlight */
+.hl-flag {
+  width: 18px; height: 18px; border-radius: 999px;
+  background: var(--accent); color: #fff;
+  display: grid; place-items: center;
+  border: 1.5px solid #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+}
+.hl-flag svg { width: 10px; height: 10px; }
+
+/* highlight-popup */
+.hl-pop { min-width: 158px; max-width: 240px; }
+.hl-pop-name { font-weight: 800; font-size: .98rem; margin-bottom: .25rem; }
+.hl-pop-sport { display: flex; align-items: center; gap: .35rem; color: var(--ink-soft); font-weight: 600; font-size: .85rem; }
+.hl-pop-sport svg { width: 16px; height: 16px; }
+.hl-pop-owner { color: var(--muted); font-size: .8rem; margin-top: .2rem; }
+.hl-pop-desc { margin: .45rem 0 0; font-size: .85rem; color: var(--ink-soft); }
+.hl-pop-foot { display: flex; align-items: center; gap: .5rem; margin-top: .65rem; flex-wrap: wrap; }
+.hl-pop-votes { display: inline-flex; align-items: center; gap: .25rem; color: var(--muted); font-weight: 700; font-size: .82rem; }
+.hl-pop-votes svg { width: 16px; height: 16px; }
+.hl-pop-own { color: var(--muted); font-size: .8rem; font-style: italic; }
+.hl-pop-del { margin-left: auto; color: var(--danger); padding: .3rem; }
+
+.hl-vote {
+  display: inline-flex; align-items: center; gap: .3rem; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-soft);
+  font: 700 .82rem var(--font); padding: .3rem .65rem; border-radius: 999px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.hl-vote:hover { background: var(--accent-soft); }
+.hl-vote svg { width: 16px; height: 16px; }
+.hl-vote.voted { background: #f9e5e1; color: var(--danger); border-color: #f0c9c2; }
+.hl-vote.voted svg { color: var(--danger); }

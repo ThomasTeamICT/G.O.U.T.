@@ -6,7 +6,7 @@ import { api, ApiError } from '../api';
 import {
   el, svgEl, icons, toast, modal, confirmDialog,
   fmtKm, fmtM, fmtDur, fmtSpeed, fmtDate,
-  difficultyBadge, sportIcon, sportLabel,
+  difficultyBadge, sportIcon, sportLabel, SPORTS,
 } from '../ui';
 import { navigate } from '../router';
 import { session } from '../main';
@@ -131,6 +131,7 @@ export function routeView(container: HTMLElement, params: Record<string, string>
   let map: L.Map | null = null;
   let elev: { destroy(): void } | null = null;
   let stopLive: (() => void) | null = null;
+  let stopMarkingRef: (() => void) | null = null;
 
   const root = el('div', {});
   container.append(root);
@@ -281,9 +282,145 @@ export function routeView(container: HTMLElement, params: Record<string, string>
       );
       if (route.ownerName) page.append(el('p', { class: 'share-p' }, `Route van ${route.ownerName}`));
     }
+
+    /* --- highlight markeren op de kaart --- */
+    const markBtn = el('button', { class: 'btn', onclick: () => startMarking() },
+      svgEl(icons.flag), 'Highlight markeren');
+    if (isOwner || route.visibility === 'public') actions.append(markBtn);
+
+    let marking = false;
+    let markLayer: L.LayerGroup | null = null;
+    let hitLine: L.Polyline | null = null;
+    let firstIdx: number | null = null;
+    let firstDot: L.CircleMarker | null = null;
+    let previewLine: L.Polyline | null = null;
+    let banner: HTMLElement | null = null;
+    let modalOpen = false;
+
+    function drawPreview(lo: number, hi: number) {
+      if (!markLayer) return;
+      const seg = route.track.slice(lo, hi + 1);
+      if (previewLine) { previewLine.remove(); previewLine = null; }
+      previewLine = L.polyline(trackToLatLngs(seg), { color: '#e8590c', weight: 6, opacity: 0.8 }).addTo(markLayer);
+    }
+
+    function resetSelection() {
+      firstIdx = null;
+      if (firstDot) { firstDot.remove(); firstDot = null; }
+      if (previewLine) { previewLine.remove(); previewLine = null; }
+    }
+
+    function onMarkClick(e: L.LeafletMouseEvent) {
+      const { index } = nearestPointIndex(route.track, e.latlng.lng, e.latlng.lat);
+      if (firstIdx === null) {
+        firstIdx = index;
+        const p = route.track[index];
+        if (markLayer)
+          firstDot = L.circleMarker([p[1], p[0]], { radius: 6, color: '#fff', weight: 2, fillColor: '#e8590c', fillOpacity: 1 }).addTo(markLayer);
+        drawPreview(index, index);
+        return;
+      }
+      const lo = Math.min(firstIdx, index);
+      const hi = Math.max(firstIdx, index);
+      if (hi - lo < 1) { toast('Kies twee verschillende punten op de route.', 'error'); return; }
+      drawPreview(lo, hi);
+      openHighlightModal(lo, hi);
+    }
+
+    function onMarkMove(e: L.LeafletMouseEvent) {
+      if (firstIdx === null || modalOpen) return;
+      const { index } = nearestPointIndex(route.track, e.latlng.lng, e.latlng.lat);
+      drawPreview(Math.min(firstIdx, index), Math.max(firstIdx, index));
+    }
+
+    function onMarkKey(e: KeyboardEvent) {
+      if (!modalOpen && e.key === 'Escape') stopMarking();
+    }
+
+    function openHighlightModal(lo: number, hi: number) {
+      const segment = route.track.slice(lo, hi + 1);
+      modalOpen = true;
+      let saved = false;
+      const box = el('div', {});
+      const nameInput = el('input', { class: 'input', type: 'text', maxlength: '80', placeholder: 'bv. Uitzicht over de vallei' });
+      const sportSel = el('select', { class: 'input' });
+      for (const s of SPORTS) sportSel.append(el('option', { value: s.key }, s.label));
+      sportSel.append(el('option', { value: 'alle' }, 'Alle sporten'));
+      sportSel.value = route.sport;
+      const descArea = el('textarea', { class: 'input', rows: '3', maxlength: '500', placeholder: 'Wat maakt dit stuk zo mooi? (optioneel)' });
+
+      const save = async () => {
+        const name = nameInput.value.trim();
+        if (!name) { toast('Geef je highlight een naam.', 'error'); nameInput.focus(); return; }
+        if (name.length > 80) { toast('De naam mag hoogstens 80 tekens lang zijn.', 'error'); return; }
+        try {
+          await api.post('/api/highlights', { name, description: descArea.value.trim(), sport: sportSel.value, track: segment });
+          saved = true;
+          toast('Highlight bewaard!');
+          close();
+          stopMarking();
+        } catch (err) {
+          toast((err as ApiError)?.message || 'Kon highlight niet bewaren.', 'error');
+        }
+      };
+
+      const close = modal(box, { onClose: () => {
+        modalOpen = false;
+        if (!saved && marking) resetSelection();
+      } });
+
+      box.append(
+        el('h2', {}, 'Highlight markeren'),
+        el('p', { class: 'share-p' }, 'Geef het mooiste stuk een naam zodat anderen het ontdekken.'),
+        el('label', { class: 'field' }, el('span', {}, 'Naam'), nameInput),
+        el('label', { class: 'field' }, el('span', {}, 'Sport'), sportSel),
+        el('label', { class: 'field' }, el('span', {}, 'Beschrijving (optioneel)'), descArea),
+        el('div', { class: 'modal-actions' },
+          el('button', { class: 'btn', onclick: () => close() }, 'Annuleren'),
+          el('button', { class: 'btn btn-primary', onclick: save }, svgEl(icons.flag), 'Bewaren'),
+        ),
+      );
+      nameInput.focus();
+    }
+
+    function startMarking() {
+      if (marking || !map) return;
+      marking = true;
+      markBtn.disabled = true;
+      markLayer = L.layerGroup().addTo(map);
+      hitLine = L.polyline(trackToLatLngs(route.track), { color: '#000000', weight: 22, opacity: 0, interactive: true }).addTo(markLayer);
+      hitLine.on('click', onMarkClick);
+      map.on('click', onMarkClick);
+      map.on('mousemove', onMarkMove);
+      document.addEventListener('keydown', onMarkKey);
+      mapHolder.style.cursor = 'crosshair';
+      banner = el('div', { class: 'hl-banner' },
+        el('span', {}, 'Klik twee punten op de route om het mooiste stuk te markeren'),
+        el('button', { class: 'btn btn-sm', onclick: () => stopMarking() }, svgEl(icons.close), 'Annuleren'),
+      );
+      root.insertBefore(banner, mapSection);
+    }
+
+    function stopMarking() {
+      markBtn.disabled = false;
+      if (!marking) return;
+      marking = false;
+      modalOpen = false;
+      if (map) { map.off('click', onMarkClick); map.off('mousemove', onMarkMove); }
+      document.removeEventListener('keydown', onMarkKey);
+      mapHolder.style.cursor = '';
+      previewLine = null;
+      firstDot = null;
+      hitLine = null;
+      firstIdx = null;
+      if (markLayer) { markLayer.remove(); markLayer = null; }
+      if (banner) { banner.remove(); banner = null; }
+    }
+    stopMarkingRef = stopMarking;
   }
 
   return () => {
+    stopMarkingRef?.();
     stopLive?.();
     elev?.destroy();
     if (map) { map.remove(); map = null; }
