@@ -295,11 +295,15 @@ main.page-wide { flex: 1; width: 100%; padding: 0; display: flex; min-height: 0;
 
 /* ---------- responsief ---------- */
 @media (max-width: 860px) {
-  .topbar { padding: .5rem .8rem; gap: .4rem; overflow-x: auto; flex-wrap: nowrap; }
+  .topbar { padding: .5rem .8rem; gap: .4rem; overflow: hidden; flex-wrap: nowrap; }
+  .topbar .logo { flex: none; }
   .topbar .logo b { font-size: 1.05rem; }
   .topbar .logo span { display: none; }
-  .topbar nav { flex: 1 0 auto; }
+  /* alleen de navigatie scrolt; logo, GPX-knop en avatar blijven altijd in beeld */
+  .topbar nav { flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .topbar nav::-webkit-scrollbar { display: none; }
   .topbar nav a { padding: .4rem .55rem; font-size: .85rem; white-space: nowrap; }
+  .topbar .btn-primary, .topbar .avatar { flex: none; }
   .topbar .gpx-label { display: none; }
   .topbar .btn-primary { padding: .5rem .6rem; }
   .topbar .avatar { flex: none; }

@@ -52,10 +52,21 @@ export function renderElevation(
   }
   for (let j = lastIdx + 1; j < fill.length; j++) fill[j] = fill[lastIdx];
 
+  // Tekenresolutie beperken: meer dan ~2 punten per pixel is onzichtbaar,
+  // en een camino van 6000 punten geeft anders een SVG-pad van ~70 kB.
+  const MAX_DRAW = 1600;
+  const drawIdx: number[] = [];
+  if (track.length <= MAX_DRAW) {
+    for (let i = 0; i < track.length; i++) drawIdx.push(i);
+  } else {
+    const step = (track.length - 1) / (MAX_DRAW - 1);
+    for (let i = 0; i < MAX_DRAW; i++) drawIdx.push(Math.round(i * step));
+  }
   let line = '', area = '';
-  for (let i = 0; i < track.length; i++) {
+  for (let k = 0; k < drawIdx.length; k++) {
+    const i = drawIdx[k];
     const x = X(cum[i]).toFixed(1), y = Y(fill[i]).toFixed(1);
-    line += (i === 0 ? 'M' : 'L') + x + ',' + y;
+    line += (k === 0 ? 'M' : 'L') + x + ',' + y;
   }
   area = line + `L${W},${H} L0,${H} Z`;
 

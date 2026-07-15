@@ -132,6 +132,7 @@ export const icons = {
   logout: I('<path d="M14 4.5H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h8M10.5 12H21m0 0-3.5-3.5M21 12l-3.5 3.5"/>'),
   flag: I('<path d="M5.5 21V4a1 1 0 0 1 1-1c4 0 6.5 2.5 10.5 1.5V13c-4 1-6.5-1.5-10.5-1.5"/>'),
   mountain: I('<path d="m2.5 19 6.5-11 4 6.5L16 11l5.5 8h-19zM9 8l1.5-2.5L13 9"/>'),
+  loop: I('<path d="M4.5 12a7.5 7.5 0 0 1 12.9-5.2M19.5 12a7.5 7.5 0 0 1-12.9 5.2"/><path d="M17.6 3.2v3.8h-3.8M6.4 20.8V17h3.8"/>'),
   layers: I('<path d="m12 3.5 9 5-9 5-9-5 9-5zM4.5 13 12 17l7.5-4M6 15.7 12 19l6-3.3"/>'),
   copy: I('<rect x="9" y="9" width="11" height="11" rx="1.5"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>'),
   check: I('<path d="m4.5 12.5 5 5L19.5 7"/>'),
@@ -160,12 +161,38 @@ export function toast(msg: string, type: 'ok' | 'error' = 'ok') {
 /* ---------- modals ---------- */
 
 export function modal(content: HTMLElement, opts: { onClose?: () => void } = {}): () => void {
-  const backdrop = el('div', { class: 'modal-backdrop' }, el('div', { class: 'modal' }, content));
-  const close = () => { backdrop.remove(); document.removeEventListener('keydown', onKey); opts.onClose?.(); };
-  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+  const panel = el('div', { class: 'modal', tabindex: '-1' }, content);
+  const backdrop = el('div', { class: 'modal-backdrop' }, panel);
+  const opener = document.activeElement as HTMLElement | null;
+
+  const focusables = () => Array.from(panel.querySelectorAll<HTMLElement>(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  )).filter((n) => !n.hasAttribute('disabled') && n.offsetParent !== null);
+
+  const close = () => {
+    backdrop.remove();
+    document.removeEventListener('keydown', onKey);
+    opener?.focus?.();
+    opts.onClose?.();
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') { close(); return; }
+    // Focus binnen de modal houden (cyclische Tab)
+    if (e.key === 'Tab') {
+      const f = focusables();
+      if (!f.length) { e.preventDefault(); panel.focus(); return; }
+      const first = f[0], last = f[f.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (!active || !panel.contains(active)) { e.preventDefault(); first.focus(); return; }
+      if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+    }
+  };
   backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) close(); });
   document.addEventListener('keydown', onKey);
   document.body.append(backdrop);
+  const f = focusables();
+  (f.find((n) => n.matches('input, select, textarea')) || f[0] || panel).focus();
   return close;
 }
 

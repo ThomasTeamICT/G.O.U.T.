@@ -190,7 +190,7 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
         process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter',
         'https://overpass.kumi.systems/api/interpreter',
       ];
-      let laatsteStatus = 0;
+      let saw429 = false;
       for (const instantie of instanties) {
         try {
           const r = await fetch(instantie, {
@@ -199,7 +199,7 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
             body: 'data=' + encodeURIComponent(query),
             signal: AbortSignal.timeout(155000),
           });
-          laatsteStatus = r.status;
+          if (r.status === 429) saw429 = true;
           if (!r.ok) continue;
           data = await r.json();
           wmtCache.set(cacheKey, { t: Date.now(), data });
@@ -207,7 +207,7 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
         } catch { /* volgende instantie */ }
       }
       if (!data) {
-        if (laatsteStatus === 429)
+        if (saw429)
           return res.status(429).json({ error: 'De OpenStreetMap-server vraagt even rust (te veel verzoeken kort na elkaar). Wacht een halve minuut en probeer opnieuw.' });
         return res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Lange routes kunnen druk bezet zijn — probeer het zo opnieuw.' });
       }
@@ -270,7 +270,7 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
         if (best >= 0 && bestD <= GAP_M) {
           const seg = pool.splice(best, 1)[0].slice();
           if (flip) seg.reverse();
-          if (append) chain.push(...seg); else chain.unshift(...seg.reverse());
+          if (append) chain.push(...seg); else chain.unshift(...seg);
           gegroeid = true;
         }
       }

@@ -77,7 +77,9 @@ function updateNav(path: string) {
     const base = '/' + (path.split('?')[0].split('/').filter(Boolean)[0] || '');
     const targetBase = '/' + (target.split('/').filter(Boolean)[0] || '');
     const aliases: Record<string, string> = { '/route': '/routes', '/activity': '/activities' };
-    a.classList.toggle('active', (aliases[base] || base) === targetBase);
+    const actief = (aliases[base] || base) === targetBase;
+    a.classList.toggle('active', actief);
+    if (actief) a.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   });
 }
 
