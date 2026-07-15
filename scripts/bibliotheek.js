@@ -20,6 +20,37 @@ import { db } from '../server/db.js';
 import { hashPassword } from '../server/auth.js';
 import { routeStats, preview, haversine, trackDistance } from '../server/geo.js';
 import { overpassQuery, fetchKnownRouteGeometry } from '../server/knownroutes.js';
+import { readFileSync as _rf, writeFileSync as _wf, existsSync as _ex, mkdirSync as _mk } from 'node:fs';
+
+// OSM-rate-limits zijn normaal bij landelijke query's: niet opgeven maar wachten.
+const slaap = (ms) => new Promise((r) => setTimeout(r, ms));
+async function metGeduld(naam, fn, pogingen = 5) {
+  for (let p = 1; ; p++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const herstelbaar = e?.status === 429 || e?.status === 502;
+      if (p >= pogingen || !herstelbaar) throw e;
+      const wacht = Math.min(30_000 * 2 ** (p - 1), 240_000);
+      console.log(`  OSM vraagt rust bij ${naam} — ik wacht ${Math.round(wacht / 1000)} s en probeer opnieuw (poging ${p + 1}/${pogingen})…`);
+      await slaap(wacht);
+    }
+  }
+}
+
+// Zware startquery's 7 dagen cachen zodat een herstart ze niet opnieuw doet.
+async function metSchijfcache(bestand, ophaler) {
+  const pad = join(DATA_DIR, 'cache', bestand);
+  if (_ex(pad)) {
+    try {
+      const c = JSON.parse(_rf(pad, 'utf8'));
+      if (Date.now() - c.t < 7 * 86_400_000) return c.data;
+    } catch { /* herophalen */ }
+  }
+  const data = await ophaler();
+  try { _mk(join(DATA_DIR, 'cache'), { recursive: true }); _wf(pad, JSON.stringify({ t: Date.now(), data })); } catch { /* best effort */ }
+  return data;
+}
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DATA_DIR = process.env.GOUT_DATA_DIR || join(ROOT, 'data');
@@ -63,7 +94,8 @@ out tags center;`;
 // ---- Ophalen, toewijzen & scoren -------------------------------------------
 
 async function haalGemeenten() {
-  const data = await overpassQuery(gemeenteQuery);
+  const data = await metSchijfcache('bib-gemeenten.json',
+    () => metGeduld('gemeentelijst', () => overpassQuery(gemeenteQuery)));
   const uit = [];
   for (const el of data.elements || []) {
     if (el.type !== 'relation') continue;
@@ -107,7 +139,8 @@ function dichtstbijzijnde(lon, lat, gemeenten) {
 }
 
 async function haalKandidaten(sport, gemeenten) {
-  const data = await overpassQuery(kandidatenQuery(SPORTS[sport].routeVals));
+  const data = await metSchijfcache(`bib-kandidaten-${sport}.json`,
+    () => metGeduld(`kandidaten ${sport}`, () => overpassQuery(kandidatenQuery(SPORTS[sport].routeVals))));
   const perGemeente = new Map();
   for (const el of data.elements || []) {
     if (el.type !== 'relation') continue;
@@ -193,7 +226,7 @@ async function verwerkGemeente(gemeente, kandidaten, bibId, droog) {
       const uitCache = cacheAanwezig(kand.id);
       let geo;
       try {
-        geo = await fetchKnownRouteGeometry(kand.id);
+        geo = await metGeduld('route ' + kand.id, () => fetchKnownRouteGeometry(kand.id), 4);
       } catch {
         if (!uitCache) await sleep(PAUZE_MS);
         verworpen.push({ naam: kand.naam || `OSM ${kand.id}`, reden: 'geen geometrie' });
@@ -259,8 +292,10 @@ async function main() {
   log(`  ${gemeenten.length} gemeente(n) gevonden.`);
 
   log('Route-relaties per sport ophalen…');
+  const kandWandelen = await haalKandidaten('wandelen', gemeenten);
+  await slaap(5000); // adempauze tussen twee landelijke query's
   const kandidaten = {
-    wandelen: await haalKandidaten('wandelen', gemeenten),
+    wandelen: kandWandelen,
     mtb: await haalKandidaten('mtb', gemeenten),
   };
   const totWandel = [...kandidaten.wandelen.values()].reduce((n, l) => n + l.length, 0);
