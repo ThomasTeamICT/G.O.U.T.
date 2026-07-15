@@ -178,7 +178,7 @@ export function confirmDialog(title: string, text: string, confirmLabel = 'Verwi
       el('p', {}, text),
       el('div', { class: 'modal-actions' },
         el('button', { class: 'btn', onclick: () => { close(); resolve(false); } }, 'Annuleren'),
-        el('button', { class: 'btn btn-primary', onclick: () => { close(); resolve(true); } }, confirmLabel),
+        el('button', { class: 'btn btn-primary', onclick: () => { resolve(true); close(); } }, confirmLabel),
       ),
     );
   });

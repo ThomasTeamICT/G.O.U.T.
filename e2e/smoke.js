@@ -83,6 +83,13 @@ try {
   if (!gpxRes.ok() || !(await gpxRes.text()).includes('<trkpt')) throw new Error('GPX-download faalt');
   ok('routekaart zichtbaar, GPX downloadbaar');
 
+  step('Route verwijderen (bevestigdialoog)');
+  await page.click('button[title="Verwijderen"]');
+  await page.waitForSelector('.modal', { timeout: 4000 });
+  await page.click('.modal .btn-primary');
+  await page.waitForFunction(() => document.querySelectorAll('.route-card').length === 0, { timeout: 5000 });
+  ok('route weg na bevestiging');
+
   step('Ontdek en statistieken renderen zonder fouten');
   await page.goto(`${BASE}/#/discover`);
   await page.waitForSelector('.leaflet-container', { timeout: 5000 });
