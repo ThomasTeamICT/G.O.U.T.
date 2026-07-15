@@ -299,15 +299,30 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
       kettingen.push(chain);
     }
     kettingen.sort((x, y) => trackDistance(y) - trackDistance(x));
-    let track = kettingen[0];
-    const weggelaten = kettingen.length - 1;
-    let tol = 0.00005;
-    while (track.length > 6000 && tol < 0.01) { track = simplify(track, tol); tol *= 2; }
+
+    // Volwaardige takken (zoals de Chartres- én Orléans-arm van de GR 655)
+    // teruggeven zodat de gebruiker kan kiezen; ruis-fragmentjes blijven weg.
+    const langste = trackDistance(kettingen[0]);
+    const verklein = (t) => {
+      let tol = 0.00005;
+      while (t.length > 6000 && tol < 0.01) { t = simplify(t, tol); tol *= 2; }
+      return t;
+    };
+    const takken = kettingen
+      .filter((k) => {
+        const d = trackDistance(k);
+        return d >= 5000 && d >= 0.25 * langste;
+      })
+      .slice(0, 4)
+      .map((k) => ({ track: verklein(k), distanceM: Math.round(trackDistance(k)) }));
+    const weggelaten = kettingen.length - takken.length;
+    const track = takken[0].track;
     const info = await infoP;
     res.json({
       name: info?.name || `Route ${id}`,
       ref: info?.ref || null,
       track,
+      chains: takken.length > 1 ? takken : undefined,
       note: weggelaten > 0
         ? `Hoofdtracé gekozen; ${weggelaten} losse variant(en)/zijtak(ken) weggelaten. Hoogtedata niet inbegrepen.`
         : 'Geometrie uit OpenStreetMap (Overpass); hoogtedata niet inbegrepen.',

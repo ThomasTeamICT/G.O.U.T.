@@ -46,7 +46,7 @@ http.createServer((req, res) => {
           { type: 'way', ref: 3, role: 'alternative', geometry: [
             { lat: 50.93, lon: 4.21 }, { lat: 50.97, lon: 4.18 }] },
           { type: 'way', ref: 4, role: '', geometry: [
-            { lat: 51.50, lon: 6.00 }, { lat: 51.51, lon: 6.01 }] },
+            { lat: 51.50, lon: 6.00 }, { lat: 51.51, lon: 6.05 }, { lat: 51.50, lon: 6.10 }] },
         ] },
       ] }));
     });

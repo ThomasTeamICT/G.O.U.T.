@@ -275,7 +275,10 @@ test('bekende routes: zoeken en geometrie aaneenrijgen', async () => {
   const lons = r.data.track.map((p) => p[0]);
   const sorted = [...lons].sort((a, b) => b - a);
   assert.deepEqual(lons, sorted, 'kettingvolgorde klopt (aflopende lon)');
-  assert.ok(!lons.some((x) => x > 5), 'losse zijtak (lon 6.x) weggelaten — geen luchtlijnen');
+  assert.ok(!lons.some((x) => x > 5), 'hoofdtracé bevat de zijtak niet — geen luchtlijnen');
+  assert.ok(Array.isArray(r.data.chains) && r.data.chains.length === 2, 'beide takken aangeboden');
+  assert.ok(r.data.chains[1].track.some((p) => p[0] > 5), 'tweede tak is de zijtak');
+  assert.ok(r.data.chains[0].distanceM > r.data.chains[1].distanceM, 'takken gesorteerd op lengte');
   assert.ok(!r.data.track.some((p) => p[0] === 4.21), 'alternative-variant weggefilterd');
   assert.match(r.data.note, /variant/, 'note vermeldt weggelaten varianten');
 
