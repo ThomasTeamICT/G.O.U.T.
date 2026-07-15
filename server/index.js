@@ -8,6 +8,7 @@ import { routesRouter, sharedRouter } from './api/routes.js';
 import { activitiesRouter } from './api/activities.js';
 import { statsRouter } from './api/stats.js';
 import { discoverRouter } from './api/discover.js';
+import { highlightsRouter } from './api/highlights.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -30,6 +31,7 @@ app.use('/api/shared', sharedRouter);
 app.use('/api/activities', activitiesRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/discover', discoverRouter);
+app.use('/api/highlights', highlightsRouter);
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Onbekend endpoint' }));
 
