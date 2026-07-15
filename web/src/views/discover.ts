@@ -250,6 +250,7 @@ export function discoverView(container: HTMLElement): () => void {
         el('div', { class: 'dc-title' },
           el('span', { class: 'dc-name' }, r.name),
           difficultyBadge(r.difficulty),
+          r.curated ? el('span', { class: 'badge badge-aanbevolen' }, 'Aanbevolen') : null,
         ),
         el('div', { class: 'statline' },
           el('span', {}, fmtDur(r.durationS)),

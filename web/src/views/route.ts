@@ -194,6 +194,8 @@ export function routeView(container: HTMLElement, params: Record<string, string>
     const renderBadges = () => {
       badgesRow.innerHTML = '';
       badgesRow.append(difficultyBadge(route.difficulty));
+      if (route.curated)
+        badgesRow.append(el('span', { class: 'badge badge-aanbevolen' }, 'Aanbevolen'));
       if (route.visibility === 'public')
         badgesRow.append(el('span', { class: 'badge badge-public' }, svgEl(icons.globe), 'Openbaar'));
       if (route.source === 'geimporteerd')

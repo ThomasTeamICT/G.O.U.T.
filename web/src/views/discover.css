@@ -68,6 +68,8 @@ main.page-wide.discover { display: flex; min-height: 0; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .discover-card .badge { font-size: .66rem; padding: .12rem .42rem; flex: none; }
+/* aanbevolen-badge voor bibliotheekroutes (curated) — accentkleur */
+.badge-aanbevolen { background: var(--accent); }
 .discover-card .statline { font-size: .82rem; gap: .15rem .5rem; margin-top: .2rem; }
 .discover-card .statline .dc-asc { display: inline-flex; align-items: center; gap: .15rem; }
 .discover-card .statline svg { width: 13px; height: 13px; }
