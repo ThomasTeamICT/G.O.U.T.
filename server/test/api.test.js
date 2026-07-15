@@ -375,3 +375,64 @@ test('highlights: validatie en auth', async () => {
   r = await c.req('POST', '/api/highlights', { name: 'x', sport: 'wandelen', track: [[4.18, 50.93]] });
   assert.equal(r.status, 400, 'te korte track geweigerd');
 });
+
+test('highlights v2: punt-highlight met categorie, 1 punt geldig, ongeldige categorie', async () => {
+  const c = client();
+  await c.req('POST', '/api/auth/register', { email: 'hlcat@test.be', name: 'Cat', password: 'wachtwoord1' });
+
+  // punt-highlight (POI): track met 1 punt + geldige categorie -> 201
+  let r = await c.req('POST', '/api/highlights', {
+    name: 'Panoramabank', sport: 'wandelen', category: 'uitzicht', track: [[4.18, 50.93]],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  assert.equal(r.data.highlight.category, 'uitzicht', 'categorie in antwoord');
+  assert.equal(r.data.highlight.track.length, 1, 'track met 1 punt bewaard');
+  const pid = r.data.highlight.id;
+
+  // ongeldige categorie -> 400
+  r = await c.req('POST', '/api/highlights', {
+    name: 'Foute POI', sport: 'wandelen', category: 'zwembad', track: [[4.18, 50.93]],
+  });
+  assert.equal(r.status, 400, 'onbekende categorie geweigerd');
+
+  // categorie optioneel: segment zonder categorie mag ook
+  r = await c.req('POST', '/api/highlights', {
+    name: 'Zonder categorie', sport: 'fietsen', track: TRACK.slice(0, 6),
+  });
+  assert.equal(r.status, 201);
+  assert.equal(r.data.highlight.category, null, 'geen categorie = null');
+
+  // PUT: categorie aanpassen en wissen ('' = null)
+  r = await c.req('PUT', `/api/highlights/${pid}`, { category: 'horeca' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.highlight.category, 'horeca');
+  r = await c.req('PUT', `/api/highlights/${pid}`, { category: '' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.highlight.category, null, 'lege categorie wist');
+  r = await c.req('PUT', `/api/highlights/${pid}`, { category: 'nonsens' });
+  assert.equal(r.status, 400, 'ongeldige categorie bij PUT geweigerd');
+});
+
+test('ontdek: standaardlimiet 10, met limit=100 alles', async () => {
+  const c = client();
+  await c.req('POST', '/api/auth/register', { email: 'lim@test.be', name: 'Limiet', password: 'wachtwoord1' });
+
+  // Eigen gebied ver van andere tests, zodat de bbox-filter deze routes isoleert.
+  const FARTRACK = [];
+  for (let i = 0; i <= 10; i++) FARTRACK.push([6.50 + 0.001 * i, 49.50 + 0.001 * i, 30]);
+
+  for (let i = 0; i < 12; i++) {
+    const r = await c.req('POST', '/api/routes', { name: `Verre route ${i}`, sport: 'wandelen', track: FARTRACK });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    await c.req('PUT', `/api/routes/${r.data.route.id}`, { visibility: 'public' });
+  }
+
+  const bbox = 'bbox=6.4,49.4,6.6,49.6';
+  let r = await c.req('GET', `/api/discover?${bbox}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.routes.length, 10, 'standaardlimiet is 10');
+
+  r = await c.req('GET', `/api/discover?${bbox}&limit=100`);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.routes.length, 12, 'met limit=100 alle 12');
+});

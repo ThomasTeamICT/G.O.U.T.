@@ -19,6 +19,8 @@ const QUERY_SPORTS = new Set(['wandelen', 'fietsen', 'mtb']);
 const POOL = 1000;
 // Maximaal aantal highlights in het antwoord.
 const MAX_RESULTS = 200;
+// Vaste POI-categorieën voor punt-highlights (null = geen categorie).
+const CATEGORIES = new Set(['uitzicht', 'rustpunt', 'horeca', 'bezienswaardig', 'trail']);
 
 /* ---------- validatie ---------- */
 
@@ -36,9 +38,22 @@ function descriptionError(description) {
   return null;
 }
 
+// Categorie is optioneel: undefined/null/'' betekent geen categorie (POI zonder
+// label of gewiste categorie). Anders moet het één van de vaste POI-categorieën zijn.
+function categoryError(category) {
+  if (category === undefined || category === null || category === '') return null;
+  if (typeof category !== 'string' || !CATEGORIES.has(category))
+    return 'Kies een geldige categorie (uitzicht, rustpunt, horeca, bezienswaardig of trail).';
+  return null;
+}
+
+function normalizeCategory(category) {
+  return category === undefined || category === null || category === '' ? null : category;
+}
+
 function trackError(track) {
   if (!Array.isArray(track)) return 'Ongeldige track.';
-  if (track.length < 2) return 'Een highlight heeft minstens 2 punten nodig.';
+  if (track.length < 1) return 'Een highlight heeft minstens 1 punt nodig.';
   if (track.length > 2000) return 'Dit segment is te lang (max. 2000 punten).';
   for (const p of track) {
     if (!Array.isArray(p) || p.length < 2) return 'Ongeldig trackpunt.';
@@ -136,15 +151,16 @@ highlightsRouter.post('/', requireAuth, (req, res) => {
   const de = descriptionError(description); if (de) return res.status(400).json({ error: de });
   if (!SPORTS.includes(b.sport)) return res.status(400).json({ error: 'Kies een geldige sport.' });
   const te = trackError(b.track); if (te) return res.status(400).json({ error: te });
+  const ce = categoryError(b.category); if (ce) return res.status(400).json({ error: ce });
 
   const bbox = bboxOf(b.track);
   const start = b.track[0];
   const info = db.prepare(`
-    INSERT INTO highlights (user_id, name, description, sport, track, start_lat, start_lon, bbox)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO highlights (user_id, name, description, sport, category, track, start_lat, start_lon, bbox)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    req.user.id, b.name.trim(), description, b.sport, JSON.stringify(b.track),
-    start[1], start[0], JSON.stringify(bbox),
+    req.user.id, b.name.trim(), description, b.sport, normalizeCategory(b.category),
+    JSON.stringify(b.track), start[1], start[0], JSON.stringify(bbox),
   );
   const row = fetchHighlight(Number(info.lastInsertRowid));
   res.status(201).json({ highlight: highlightSummary(row, req.user.id) });
@@ -195,6 +211,10 @@ highlightsRouter.put('/:id', requireAuth, (req, res) => {
   if (b.sport !== undefined) {
     if (!SPORTS.includes(b.sport)) return res.status(400).json({ error: 'Kies een geldige sport.' });
     sets.push('sport = ?'); args.push(b.sport);
+  }
+  if (b.category !== undefined) {
+    const ce = categoryError(b.category); if (ce) return res.status(400).json({ error: ce });
+    sets.push('category = ?'); args.push(normalizeCategory(b.category));
   }
 
   if (sets.length) {

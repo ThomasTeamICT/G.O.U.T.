@@ -141,3 +141,16 @@ main.page-wide.discover { display: flex; min-height: 0; }
 .hl-vote svg { width: 16px; height: 16px; }
 .hl-vote.voted { background: #f9e5e1; color: var(--danger); border-color: #f0c9c2; }
 .hl-vote.voted svg { color: var(--danger); }
+
+/* paneeltekst boven de resultatenlijst (muted, page-sub-achtig) */
+.discover-sub {
+  flex: none; padding: .7rem 1rem 0; color: var(--muted);
+  font-size: .82rem; font-weight: 600;
+}
+
+/* categorie-label van een punt-highlight (POI) in de popup */
+.hl-pop-cat {
+  display: inline-block; margin: 0 0 .3rem;
+  background: var(--accent-soft); color: var(--accent);
+  font-weight: 700; font-size: .74rem; padding: .12rem .5rem; border-radius: 999px;
+}

@@ -20,6 +20,25 @@ const AREA_EMPTY =
 const TOP_EMPTY =
   'Er zijn nog geen openbare routes gedeeld. Wees de eerste en deel jouw favoriete route!';
 
+// Paneeltekst boven de resultatenlijst, afhankelijk van de tab.
+const AREA_SUB = 'De best gewaardeerde routes in dit gebied';
+const TOP_SUB = 'De 10 best gewaardeerde routes wereldwijd';
+
+// Vaste POI-categorieën → NL-labels voor markers en popups.
+const CATEGORY_LABELS: Record<string, string> = {
+  uitzicht: 'Uitzicht',
+  rustpunt: 'Rustpunt',
+  horeca: 'Café/horeca',
+  bezienswaardig: 'Bezienswaardig',
+  trail: 'Toffe trail',
+};
+function categoryLabel(cat: string | null): string | null {
+  return cat ? (CATEGORY_LABELS[cat] ?? null) : null;
+}
+
+const HL_EMPTY_HINT =
+  'Nog geen highlights in dit gebied. Markeer er zelf één via een route → Highlight markeren.';
+
 export function discoverView(container: HTMLElement): () => void {
   const routeColor =
     getComputedStyle(document.documentElement).getPropertyValue('--route').trim() || '#3557e0';
@@ -47,6 +66,7 @@ export function discoverView(container: HTMLElement): () => void {
   const tabs = el('div', { class: 'tabs' }, tabAreaBtn, tabTopBtn);
 
   const resultsEl = el('div', { class: 'discover-results' });
+  const resultsHint = el('div', { class: 'discover-sub' }, AREA_SUB);
 
   const panel = el('aside', { class: 'discover-panel' },
     el('div', { class: 'discover-head' },
@@ -55,6 +75,7 @@ export function discoverView(container: HTMLElement): () => void {
       filters,
       tabs,
     ),
+    resultsHint,
     resultsEl,
   );
 
@@ -123,6 +144,7 @@ export function discoverView(container: HTMLElement): () => void {
   function updateTabs() {
     tabAreaBtn.classList.toggle('active', tab === 'area');
     tabTopBtn.classList.toggle('active', tab === 'top');
+    resultsHint.textContent = tab === 'top' ? TOP_SUB : AREA_SUB;
   }
   tabAreaBtn.addEventListener('click', () => {
     if (tab === 'area') return;
@@ -267,18 +289,30 @@ export function discoverView(container: HTMLElement): () => void {
 
   function clearHighlights() { highlightLayer.clearLayers(); }
 
+  // Vlag-marker op een punt; title = categorie-label (indien gekend).
+  function flagMarker(h: Highlight, lat: number, lon: number): L.Marker {
+    const title = categoryLabel(h.category);
+    const marker = L.marker([lat, lon], title ? { icon: flagIcon(), title } : { icon: flagIcon() });
+    marker.on('click', () => openHighlightPopup(h, L.latLng(lat, lon)));
+    return marker;
+  }
+
   function drawHighlights(list: Highlight[]) {
     highlightLayer.clearLayers();
     for (const h of list) {
-      if (!h.track || h.track.length < 2) continue;
+      if (!h.track || h.track.length < 1) continue;
+      if (h.track.length === 1) {
+        // Punt-highlight (POI): enkel een vlag-marker, geen lijn.
+        const [lon, lat] = h.track[0];
+        flagMarker(h, lat, lon).addTo(highlightLayer);
+        continue;
+      }
       const latlngs = h.track.map(([lon, lat]) => [lat, lon] as [number, number]);
       const line = L.polyline(latlngs, { color: '#e8590c', weight: 4, opacity: 0.7 });
       line.on('click', (e: L.LeafletMouseEvent) => openHighlightPopup(h, e.latlng));
       line.addTo(highlightLayer);
       const mid = h.track[Math.floor(h.track.length / 2)];
-      const marker = L.marker([mid[1], mid[0]], { icon: flagIcon() });
-      marker.on('click', () => openHighlightPopup(h, L.latLng(mid[1], mid[0])));
-      marker.addTo(highlightLayer);
+      flagMarker(h, mid[1], mid[0]).addTo(highlightLayer);
     }
   }
 
@@ -291,7 +325,14 @@ export function discoverView(container: HTMLElement): () => void {
     if (sport) params.set('sport', sport);
     try {
       const { highlights } = await api.get<{ highlights: Highlight[] }>(`/api/highlights?${params}`);
-      if (showHighlights) drawHighlights(highlights);
+      if (!showHighlights) return;
+      drawHighlights(highlights);
+      // Lege staat: staat de toggle aan en levert deze laadbeurt 0 highlights op,
+      // dan éénmaal per sessie een vriendelijke hint tonen.
+      if (highlights.length === 0 && !sessionStorage.getItem('gout.hlEmptyHinted')) {
+        sessionStorage.setItem('gout.hlEmptyHinted', '1');
+        toast(HL_EMPTY_HINT);
+      }
     } catch (e) {
       toast(e instanceof ApiError ? e.message : 'Kon highlights niet laden.', 'error');
     }
@@ -316,8 +357,10 @@ export function discoverView(container: HTMLElement): () => void {
     let voted = h.voted;
 
     const box = el('div', { class: 'hl-pop' });
+    box.append(el('div', { class: 'hl-pop-name' }, h.name));
+    const catLabel = categoryLabel(h.category);
+    if (catLabel) box.append(el('div', { class: 'hl-pop-cat' }, catLabel));
     box.append(
-      el('div', { class: 'hl-pop-name' }, h.name),
       el('div', { class: 'hl-pop-sport' }, svgEl(hlSportIcon(h.sport)), hlSportLabel(h.sport)),
       el('div', { class: 'hl-pop-owner' }, `door ${h.ownerName ?? 'onbekend'}`),
     );

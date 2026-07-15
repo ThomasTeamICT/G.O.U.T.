@@ -53,7 +53,7 @@ discoverRouter.get('/', requireAuth, (req, res) => {
   }
   const [w2, s2, e2, n2] = box;
 
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 30));
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
   const sport = SPORTS.has(req.query.sport) ? req.query.sport : null;
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
 
