@@ -175,16 +175,43 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
     // de relatie + al haar deelrelaties, met weg-geometrie inline.
     const base = WMT_BASE.replace('{site}', site);
     const infoP = wmtFetch(`${base}/api/v1/details/relation/${id}`).catch(() => null);
-    const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter';
-    const query = `[out:json][timeout:120];rel(${id});(._;>>;);out geom;`;
-    const r = await fetch(OVERPASS_URL, {
-      method: 'POST',
-      headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + encodeURIComponent(query),
-      signal: AbortSignal.timeout(120000),
-    });
-    if (!r.ok) throw new Error(`Overpass ${r.status}`);
-    const data = await r.json();
+
+    // Cache: grote GR's niet telkens opnieuw ophalen (en de gratis server sparen).
+    const cacheKey = `geom:${id}`;
+    const hit = wmtCache.get(cacheKey);
+    let data;
+    if (hit && Date.now() - hit.t < 6 * 3600_000) {
+      data = hit.data;
+    } else {
+      // Zonder losse knooppunten (die zitten al in de weg-geometrie): veel
+      // kleinere download, belangrijk bij camino's van 800+ km.
+      const query = `[out:json][timeout:150];rel(${id})->.r;.r >> -> .alles;(.r; rel.alles; way.alles;);out geom;`;
+      const instanties = [
+        process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+      ];
+      let laatsteStatus = 0;
+      for (const instantie of instanties) {
+        try {
+          const r = await fetch(instantie, {
+            method: 'POST',
+            headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'data=' + encodeURIComponent(query),
+            signal: AbortSignal.timeout(155000),
+          });
+          laatsteStatus = r.status;
+          if (!r.ok) continue;
+          data = await r.json();
+          wmtCache.set(cacheKey, { t: Date.now(), data });
+          break;
+        } catch { /* volgende instantie */ }
+      }
+      if (!data) {
+        if (laatsteStatus === 429)
+          return res.status(429).json({ error: 'De OpenStreetMap-server vraagt even rust (te veel verzoeken kort na elkaar). Wacht een halve minuut en probeer opnieuw.' });
+        return res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Lange routes kunnen druk bezet zijn — probeer het zo opnieuw.' });
+      }
+    }
 
     // Wegen verzamelen. Bij voorkeur via de relatie-leden zodat we varianten,
     // zijtakken en aanlooproutes (rol 'alternative', 'excursion', ...) kunnen
