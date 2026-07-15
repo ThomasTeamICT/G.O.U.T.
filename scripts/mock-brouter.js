@@ -17,6 +17,61 @@ function segment(a, b, n) {
   return pts;
 }
 
+// --- Nep-Overpass-antwoorden voor de bibliotheek-oogst + geometrie -----------
+
+// Geometrie van een route-relatie: dezelfde vorm als de bestaande 902-mock, zodat
+// aaneenrijgen en lengtes kloppen. Alle kandidaat-ids wijzen naar deze vorm
+// (~16 km hoofdtak, binnen wandelbereik). MTB-kandidaten (id >= 2000) krijgen een
+// langere variant (~18 km) via één extra segment.
+function overpassGeometrie(q) {
+  const m = q.match(/rel\((\d+)\)/);
+  const id = m ? Number(m[1]) : 902;
+  const ways = [
+    { type: 'way', ref: 2, role: '', geometry: [
+      { lat: 50.93, lon: 4.20 }, { lat: 50.95, lon: 4.15 }, { lat: 50.96, lon: 4.10 }] },
+    { type: 'way', ref: 1, role: '', geometry: [
+      { lat: 50.90, lon: 4.30 }, { lat: 50.92, lon: 4.25 }, { lat: 50.93, lon: 4.20 }] },
+    { type: 'way', ref: 3, role: 'alternative', geometry: [
+      { lat: 50.93, lon: 4.21 }, { lat: 50.97, lon: 4.18 }] },
+    { type: 'way', ref: 4, role: '', geometry: [
+      { lat: 51.50, lon: 6.00 }, { lat: 51.51, lon: 6.05 }, { lat: 51.50, lon: 6.10 }] },
+  ];
+  if (id >= 2000) {
+    ways.push({ type: 'way', ref: 5, role: '', geometry: [
+      { lat: 50.96, lon: 4.10 }, { lat: 50.97, lon: 4.07 }] });
+  }
+  return { elements: [{ type: 'relation', id, members: ways }] };
+}
+
+// Drie nepgemeenten met center (admin_level=8 in area BE).
+const GEMEENTEN = { elements: [
+  { type: 'relation', id: 100001, tags: { name: 'Opwijk', admin_level: '8', boundary: 'administrative' }, center: { lat: 50.93, lon: 4.18 } },
+  { type: 'relation', id: 100002, tags: { name: 'Affligem', admin_level: '8', boundary: 'administrative' }, center: { lat: 50.90, lon: 4.11 } },
+  { type: 'relation', id: 100003, tags: { name: 'Aalst', admin_level: '8', boundary: 'administrative' }, center: { lat: 50.94, lon: 4.04 } },
+] };
+
+// Vier nep-wandelkandidaten (verschillende afstanden tot de kernen, één zonder naam).
+const WANDEL = { elements: [
+  { type: 'relation', id: 1001, tags: { name: 'Kravaalbos-lus', network: 'lwn', route: 'hiking', distance: '12', roundtrip: 'yes' }, center: { lat: 50.93, lon: 4.18 } },
+  { type: 'relation', id: 1002, tags: { name: 'Dendervallei-voetpad', network: 'rwn', route: 'foot', distance: '20' }, center: { lat: 50.94, lon: 4.05 } },
+  { type: 'relation', id: 1003, tags: { name: 'Affligem-wandeling', route: 'hiking', distance: '8' }, center: { lat: 50.90, lon: 4.11 } },
+  { type: 'relation', id: 1004, tags: { network: 'lwn', route: 'hiking', distance: '60' }, center: { lat: 50.94, lon: 4.19 } },
+] };
+
+// Twee nep-mtb-kandidaten (id >= 2000 → langere geometrievariant).
+const MTB = { elements: [
+  { type: 'relation', id: 2001, tags: { name: 'MTB-lus Affligem', route: 'mtb', distance: '25', roundtrip: 'yes' }, center: { lat: 50.90, lon: 4.11 } },
+  { type: 'relation', id: 2002, tags: { name: 'MTB Dendertrail', route: 'mtb', network: 'rwn', distance: '30' }, center: { lat: 50.94, lon: 4.04 } },
+] };
+
+function overpassAntwoord(q) {
+  if (/way\(r/.test(q)) return overpassGeometrie(q);          // geometrie-ophaling
+  if (/route[\s\S]*mtb/.test(q)) return MTB;                  // mtb-kandidaten
+  if (/route[\s\S]*(hiking|foot)/.test(q)) return WANDEL;     // wandelkandidaten
+  if (/admin_level[\s\S]*8/.test(q)) return GEMEENTEN;        // gemeenten
+  return overpassGeometrie(q);                                // terugval: geometrie
+}
+
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
 
@@ -36,19 +91,10 @@ http.createServer((req, res) => {
     let body = '';
     req.on('data', (d) => { body += d; });
     req.on('end', () => {
+      let q = body;
+      try { q = decodeURIComponent(body.replace(/^data=/, '')); } catch { /* rauwe body */ }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ elements: [
-        { type: 'relation', id: 902, members: [
-          { type: 'way', ref: 2, role: '', geometry: [
-            { lat: 50.93, lon: 4.20 }, { lat: 50.95, lon: 4.15 }, { lat: 50.96, lon: 4.10 }] },
-          { type: 'way', ref: 1, role: '', geometry: [
-            { lat: 50.90, lon: 4.30 }, { lat: 50.92, lon: 4.25 }, { lat: 50.93, lon: 4.20 }] },
-          { type: 'way', ref: 3, role: 'alternative', geometry: [
-            { lat: 50.93, lon: 4.21 }, { lat: 50.97, lon: 4.18 }] },
-          { type: 'way', ref: 4, role: '', geometry: [
-            { lat: 51.50, lon: 6.00 }, { lat: 51.51, lon: 6.05 }, { lat: 51.50, lon: 6.10 }] },
-        ] },
-      ] }));
+      res.end(JSON.stringify(overpassAntwoord(q)));
     });
     return;
   }

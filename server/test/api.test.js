@@ -443,3 +443,106 @@ test('ontdek: standaardlimiet 10, met limit=100 alles', async () => {
   assert.equal(r.status, 200);
   assert.equal(r.data.routes.length, 12, 'met limit=100 alle 12');
 });
+
+// --- Bibliotheek-oogstscript (scripts/bibliotheek.js) ------------------------
+// Draait het script in een apart proces tegen de mock-Overpass (die in before()
+// al op poort 17777 luistert). Het script gebruikt server/db.js en respecteert
+// GOUT_DATA_DIR: we geven het een echte db-file in een tempmap en openen die
+// daarna read-only met een tweede DatabaseSync om te asserten.
+import { DatabaseSync } from 'node:sqlite';
+import { tmpdir } from 'node:os';
+import { join as pathJoin } from 'node:path';
+import { rmSync } from 'node:fs';
+
+function draaiBibliotheek(dataDir, extraArgs = []) {
+  const env = {
+    ...process.env,
+    GOUT_DATA_DIR: dataDir,
+    OVERPASS_URL: 'http://localhost:17777/overpass',
+    WMT_BASE: 'http://localhost:17777/wmt/{site}',
+    BIB_PAUZE_MS: '20', // korte beleefdheidspauze zodat de test vlot draait
+  };
+  delete env.GOUT_DB; // geen :memory: -> db.js gebruikt een echte file in dataDir
+  return new Promise((resolve, reject) => {
+    const p = spawn(process.execPath, ['--no-warnings', 'scripts/bibliotheek.js', ...extraArgs],
+      { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    p.stdout.on('data', (d) => { out += d; });
+    p.stderr.on('data', (d) => { out += d; });
+    p.on('error', reject);
+    p.on('exit', (code) => resolve({ code, out }));
+  });
+}
+
+function openReadOnly(dataDir) {
+  return new DatabaseSync(pathJoin(dataDir, 'gout.db'), { readOnly: true });
+}
+
+test('bibliotheek-oogst: 3 wandel + 3 mtb per gemeente, curated, idempotent, droog', async () => {
+  const tmp = pathJoin(tmpdir(), `gout-bib-${process.pid}-${Date.now()}`);
+  const tmpDroog = pathJoin(tmpdir(), `gout-bib-droog-${process.pid}-${Date.now()}`);
+  try {
+    // --- eerste run: schrijft de bibliotheek weg ---
+    let r = await draaiBibliotheek(tmp);
+    assert.equal(r.code, 0, `script eindigt netjes:\n${r.out}`);
+
+    let db1 = openReadOnly(tmp);
+    let eersteAantal;
+    try {
+      // bibliotheekgebruiker bestaat
+      const bib = db1.prepare("SELECT id, name FROM users WHERE email = 'bibliotheek@gout.be'").get();
+      assert.ok(bib, 'bibliotheekaccount aangemaakt');
+      assert.equal(bib.name, 'G.O.U.T. Bibliotheek');
+
+      const routes = db1.prepare('SELECT * FROM routes WHERE user_id = ?').all(bib.id);
+      assert.ok(routes.length >= 4, `routes opgeslagen (kreeg ${routes.length})`);
+      eersteAantal = db1.prepare('SELECT COUNT(*) c FROM routes').get().c;
+
+      // alle routes zijn curated met osm_rel_id, publiek en van het bib-account
+      for (const rt of routes) {
+        assert.equal(rt.curated, 1, 'curated=1');
+        assert.ok(rt.osm_rel_id != null, 'osm_rel_id aanwezig');
+        assert.equal(rt.visibility, 'public', 'publiek');
+        assert.equal(rt.source, 'gepland', 'source=gepland');
+        assert.match(rt.region, /, België$/, 'region = "Gemeente, België"');
+      }
+
+      // per nepgemeente hoogstens 3 wandel + 3 mtb
+      for (const gem of ['Opwijk', 'Affligem', 'Aalst']) {
+        const w = db1.prepare("SELECT COUNT(*) c FROM routes WHERE region = ? AND sport = 'wandelen'").get(`${gem}, België`).c;
+        const m = db1.prepare("SELECT COUNT(*) c FROM routes WHERE region = ? AND sport = 'mtb'").get(`${gem}, België`).c;
+        assert.ok(w <= 3, `${gem}: hoogstens 3 wandelroutes (kreeg ${w})`);
+        assert.ok(m <= 3, `${gem}: hoogstens 3 mtb-routes (kreeg ${m})`);
+      }
+    } finally {
+      db1.close();
+    }
+
+    // --- tweede run: idempotent, voegt niets toe ---
+    r = await draaiBibliotheek(tmp);
+    assert.equal(r.code, 0, `tweede run eindigt netjes:\n${r.out}`);
+    const db2 = openReadOnly(tmp);
+    try {
+      const na = db2.prepare('SELECT COUNT(*) c FROM routes').get().c;
+      assert.equal(na, eersteAantal, 'tweede run voegt niets toe (idempotent)');
+    } finally {
+      db2.close();
+    }
+
+    // --- droogloop op een verse map: schrijft niets ---
+    const dr = await draaiBibliotheek(tmpDroog, ['--droog']);
+    assert.equal(dr.code, 0, `droogloop eindigt netjes:\n${dr.out}`);
+    const db3 = openReadOnly(tmpDroog);
+    try {
+      const aantal = db3.prepare('SELECT COUNT(*) c FROM routes').get().c;
+      assert.equal(aantal, 0, '--droog schrijft geen routes weg');
+      const bibDroog = db3.prepare("SELECT COUNT(*) c FROM users WHERE email = 'bibliotheek@gout.be'").get().c;
+      assert.equal(bibDroog, 0, '--droog maakt geen bibliotheekaccount aan');
+    } finally {
+      db3.close();
+    }
+  } finally {
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ok */ }
+    try { rmSync(tmpDroog, { recursive: true, force: true }); } catch { /* ok */ }
+  }
+});
