@@ -97,6 +97,17 @@
 .plan-elev { margin-top: .7rem; border-top: 1px solid var(--line); padding-top: .6rem; }
 .plan-elev-empty { color: var(--muted); font-size: .85rem; text-align: center; padding: 1.2rem 0; }
 
+/* takkenbalk: bij een geladen route met meerdere takken (bv. GR 655 west/oost)
+   kies je hier de actieve tak. Zit als rij boven de 'Geladen: …'-zone. */
+.plan-branchbar {
+  display: flex; align-items: center; gap: .35rem .55rem; flex-wrap: wrap;
+  padding-bottom: .55rem; margin-bottom: .55rem;
+  border-bottom: 1px solid var(--line);
+}
+.plan-branch-label { font-weight: 700; font-size: .82rem; color: var(--ink); }
+.plan-branch-chips { display: flex; gap: .35rem; flex-wrap: wrap; }
+.plan-branch-chip { padding: .3rem .62rem; font-size: .8rem; }
+
 /* ---------- bekende-routes-modal ---------- */
 .kr-modal .kr-info { color: var(--muted); font-size: .88rem; margin: -.4rem 0 .8rem; }
 .kr-modal .kr-info + .input-search { box-shadow: var(--shadow); }
@@ -188,6 +199,10 @@
   .plan-stats-row .statline .sep { display: none; }
   .plan-loaded-badge { max-width: 60vw; }
   .plan-stats-actions { margin-left: auto; }
+  /* takkenbalk mobiel: label op eigen regel, chips eronder over volle breedte */
+  .plan-branchbar { padding-bottom: .45rem; margin-bottom: .45rem; gap: .3rem .45rem; }
+  .plan-branch-label { font-size: .78rem; flex: 1 1 100%; }
+  .plan-branch-chips { flex: 1 1 100%; }
   .plan-elev { margin-top: .5rem; padding-top: .5rem; }
 }
 

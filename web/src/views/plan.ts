@@ -69,6 +69,14 @@ export function planView(
   // zonder bewerkbare waypoints (enkel de volledige geometrie, opslaan & GPX).
   let loadedRoute: { name: string; ref: string | null; track: TrackPoint[] } | null = null;
 
+  // Takken: sommige bekende routes hebben meerdere volwaardige armen (bv. de
+  // GR 655/Via Turonensis met een west-tak via Chartres en een oost-tak via
+  // Orleans). branches (>=2) vult de takkenbalk; leeg = gewone enkele route.
+  // De actieve tak (branches[activeBranch].track) is altijd loadedRoute.track.
+  type Branch = { track: TrackPoint[]; distanceM: number };
+  let branches: Branch[] = [];
+  let activeBranch = 0;
+
   // Referentie naar de open 'Bekende routes'-modal (met haar laadtimers + fetch),
   // zodat de view-cleanup ze bij wegnavigeren netjes opruimt: geen weesmodal die
   // over de volgende pagina blijft hangen, geen tikkende timers, fetch afgebroken.
@@ -103,6 +111,9 @@ export function planView(
   const LOADING_STYLE: L.PolylineOptions = { color: '#8f8c7f', weight: 2.5, opacity: 0.75, dashArray: '4 8' };
   const HL_STYLE: L.PolylineOptions = { color: '#e8590c', weight: 4, opacity: 0.7 };
   const DIM_STYLE: L.PolylineOptions = { color: '#3557e0', weight: 3, opacity: 0.25 };
+  // Niet-actieve takken (bv. de west-arm terwijl je de oost-arm bekijkt):
+  // zelfde blauw, iets dunner en fel gedempt, maar klikbaar om te activeren.
+  const BRANCH_DIM_STYLE: L.PolylineOptions = { color: '#3557e0', weight: 3.5, opacity: 0.3 };
 
   /* ------------------------------ DOM ------------------------------ */
   const mapEl = el('div', { style: 'position:absolute;inset:0;' });
@@ -209,7 +220,15 @@ export function planView(
   const partBtn = el('button', { type: 'button', class: 'btn btn-sm plan-part-btn', style: 'display:none', onclick: () => onPartBtn() },
     svgEl(icons.flag), 'Kies je deel');
 
+  // Takkenbalk: bij een geladen route met meerdere takken kies je hier (of op de
+  // kaart) de actieve tak. Boven de 'Geladen: …'-zone in de statsbalk; op mobiel
+  // valt hij mee als volle-breedte-rij boven de cijfers.
+  const branchLabel = el('span', { class: 'plan-branch-label' });
+  const branchChips = el('div', { class: 'plan-branch-chips' });
+  const branchBar = el('div', { class: 'plan-branchbar', style: 'display:none' }, branchLabel, branchChips);
+
   const statsCard = el('div', { class: 'card plan-stats' },
+    branchBar,
     el('div', { class: 'plan-stats-row' },
       statline,
       el('div', { class: 'plan-stats-actions' }, partBtn, elevChevron, gpxBtn, saveBtn),
@@ -724,6 +743,7 @@ export function planView(
     redraw();
     updateStats();
     updateButtons();
+    updateBranchBar();
     updateEtapUi();
     updateElevation();
     if (!loadedRoute) computeMissing();
@@ -745,6 +765,22 @@ export function planView(
       const full = loadedRoute.track;
       const active = etappeTrack();
       const canEdit = !pickingActive(); // buiten de kies-modus is de lijn klikbaar voor splits
+
+      // Niet-actieve takken gedimd tekenen; klikken activeert die tak. Tijdens
+      // het A/B-kiezen staan ze op non-interactive zodat de klik niet botst.
+      if (branches.length >= 2) {
+        branches.forEach((b, i) => {
+          if (i === activeBranch) return;
+          const poly = L.polyline(trackToLatLngs(b.track), { ...BRANCH_DIM_STYLE, interactive: canEdit }).addTo(legLayer);
+          if (canEdit) {
+            poly.on('click', () => {
+              ignoreNextMapClick = true;
+              queueMicrotask(() => { ignoreNextMapClick = false; });
+              switchBranch(i);
+            });
+          }
+        });
+      }
 
       // Buiten het gekozen deel blijft de volledige lijn gedimd zichtbaar.
       if (subTrack) {
@@ -1218,7 +1254,16 @@ export function planView(
         stopLoadingTimers();
         loadAbort = null;
         close();
-        enterLoadedMode(data.name, data.ref, (data.track as [number, number][]).map((p) => [p[0], p[1]] as TrackPoint));
+        const loadedTrack = (data.track as [number, number][]).map((p) => [p[0], p[1]] as TrackPoint);
+        const loadedChains: Branch[] | undefined = Array.isArray(data.chains)
+          ? (data.chains as { track: [number, number][]; distanceM: number }[])
+              .filter((c) => c && Array.isArray(c.track) && c.track.length >= 2)
+              .map((c) => ({
+                track: c.track.map((p) => [p[0], p[1]] as TrackPoint),
+                distanceM: Number(c.distanceM) || 0,
+              }))
+          : undefined;
+        enterLoadedMode(data.name, data.ref, loadedTrack, loadedChains);
         toast('Route geladen: ' + data.name);
       } catch (err: any) {
         stopLoadingTimers();
@@ -1233,10 +1278,47 @@ export function planView(
     }
   }
 
-  function enterLoadedMode(name: string, ref: string | null, track: TrackPoint[]) {
+  /* ------------------------- takken (bv. west/oost-armen) ------------------------- */
+  function updateBranchBar() {
+    if (!loadedRoute || branches.length < 2) {
+      branchBar.style.display = 'none';
+      branchChips.replaceChildren();
+      return;
+    }
+    branchBar.style.display = '';
+    branchLabel.textContent = `Deze route heeft ${branches.length} takken:`;
+    branchChips.replaceChildren(
+      ...branches.map((b, i) => el('button', {
+        type: 'button',
+        class: 'chip plan-branch-chip' + (i === activeBranch ? ' active' : ''),
+        onclick: () => switchBranch(i),
+      }, `Tak ${i + 1} · ${fmtKm(b.distanceM)}`)),
+    );
+  }
+
+  async function switchBranch(i: number) {
+    if (!loadedRoute || i < 0 || i >= branches.length || i === activeBranch) return;
+    // Van tak wisselen wist een gekozen deel en de dagetappe-splits: even bevestigen.
+    if (subTrack || splits.length) {
+      const ok = await confirmDialog('Van tak wisselen?',
+        'Je gekozen deel en dagetappes worden gewist.', 'Wisselen');
+      if (!ok) return;
+    }
+    if (!loadedRoute || i === activeBranch) return; // kan intussen veranderd zijn
+    activeBranch = i;
+    loadedRoute.track = branches[i].track;
+    resetEtappe();
+    afterChange();
+    fitToTrack(map, loadedRoute.track);
+  }
+
+  function enterLoadedMode(name: string, ref: string | null, track: TrackPoint[], chains?: Branch[]) {
     gen++; // eventuele hangende leg-berekeningen negeren
     stopBeelineIfNeeded();
-    loadedRoute = { name, ref, track };
+    branches = (chains && chains.length >= 2) ? chains : [];
+    activeBranch = 0;
+    // Tak 1 (langste) is de actieve tak; loadedRoute.track = de actieve tak.
+    loadedRoute = { name, ref, track: branches.length ? branches[0].track : track };
     waypoints = [];
     legTracks = [];
     undoStack.length = 0;
@@ -1245,7 +1327,8 @@ export function planView(
     editMeta = { name, description: '', visibility: 'private' };
     resetEtappe();
     afterChange();
-    fitToTrack(map, track);
+    // Bij meerdere takken: toon ze allemaal zodat je meteen kan kiezen; anders de route zelf.
+    fitToTrack(map, branches.length >= 2 ? branches.flatMap((b) => b.track) : loadedRoute.track);
   }
 
   function stopBeelineIfNeeded() {
@@ -1254,7 +1337,10 @@ export function planView(
 
   function exitLoadedMode() {
     loadedRoute = null;
+    branches = [];
+    activeBranch = 0;
     resetEtappe();
+    updateBranchBar();
     legLayer.clearLayers();
     markerLayer.clearLayers();
     editMeta = { name: '', description: '', visibility: 'private' };
