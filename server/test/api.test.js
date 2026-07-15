@@ -47,6 +47,7 @@ before(async () => {
   proc = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
     env: {
       ...process.env, GOUT_DB: ':memory:', PORT: String(PORT),
+      GOUT_DATA_DIR: `/tmp/gout-test-${process.pid}`,
       BROUTER_URL: 'http://localhost:17777',
       WMT_BASE: 'http://localhost:17777/wmt/{site}',
       OVERPASS_URL: 'http://localhost:17777/overpass',
