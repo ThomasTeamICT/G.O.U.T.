@@ -282,3 +282,95 @@ test('bekende routes: zoeken en geometrie aaneenrijgen', async () => {
   r = await anon.req('GET', '/api/knownroutes?q=via');
   assert.equal(r.status, 401, 'auth verplicht');
 });
+
+test('highlights: aanmaken, zoeken op gebied, stemmen', async () => {
+  const anna = client();
+  await anna.req('POST', '/api/auth/register', { email: 'hl-anna@test.be', name: 'Anna', password: 'wachtwoord1' });
+
+  // aanmaken
+  let r = await anna.req('POST', '/api/highlights', {
+    name: 'Mooi uitzicht', description: 'Prachtig panorama', sport: 'wandelen', track: TRACK.slice(0, 10),
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.data));
+  const hl = r.data.highlight;
+  assert.equal(hl.name, 'Mooi uitzicht');
+  assert.equal(hl.sport, 'wandelen');
+  assert.equal(hl.votes, 0);
+  assert.equal(hl.voted, false);
+  assert.equal(hl.isOwner, true);
+  assert.ok(Array.isArray(hl.bbox) && hl.bbox.length === 4, 'bbox berekend');
+  assert.ok(hl.startLat != null && hl.startLon != null, 'start berekend');
+  assert.equal(hl.ownerName, 'Anna');
+
+  // zoeken in gebied -> gevonden
+  r = await anna.req('GET', '/api/highlights?bbox=4.0,50.8,4.4,51.0');
+  assert.equal(r.status, 200);
+  assert.ok(r.data.highlights.some((x) => x.id === hl.id), 'highlight in gebied gevonden');
+
+  // sportfilter mtb vindt een wandel-highlight niet
+  r = await anna.req('GET', '/api/highlights?bbox=4.0,50.8,4.4,51.0&sport=mtb');
+  assert.ok(!r.data.highlights.some((x) => x.id === hl.id), 'andere sport niet gevonden');
+
+  // buiten gebied -> niet gevonden
+  r = await anna.req('GET', '/api/highlights?bbox=10.0,50.0,10.5,50.5');
+  assert.ok(!r.data.highlights.some((x) => x.id === hl.id), 'buiten gebied niet gevonden');
+
+  // bbox verplicht
+  r = await anna.req('GET', '/api/highlights');
+  assert.equal(r.status, 400, 'bbox verplicht');
+
+  // tweede gebruiker stemt + unstemt
+  const bert = client();
+  await bert.req('POST', '/api/auth/register', { email: 'hl-bert@test.be', name: 'Bert', password: 'wachtwoord1' });
+  r = await bert.req('POST', `/api/highlights/${hl.id}/vote`);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.votes, 1);
+  assert.equal(r.data.voted, true);
+  // dubbel stemmen blijft 1 (INSERT OR IGNORE)
+  r = await bert.req('POST', `/api/highlights/${hl.id}/vote`);
+  assert.equal(r.data.votes, 1, 'dubbele stem telt niet dubbel');
+  r = await bert.req('DELETE', `/api/highlights/${hl.id}/vote`);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.votes, 0);
+  assert.equal(r.data.voted, false);
+
+  // eigen highlight stemmen geweigerd
+  r = await anna.req('POST', `/api/highlights/${hl.id}/vote`);
+  assert.equal(r.status, 400, 'niet op eigen highlight stemmen');
+
+  // PUT/DELETE door niet-eigenaar -> 404 (bestaan niet lekken)
+  r = await bert.req('PUT', `/api/highlights/${hl.id}`, { name: 'gekaapt' });
+  assert.equal(r.status, 404, 'andermans highlight niet bewerken');
+  r = await bert.req('DELETE', `/api/highlights/${hl.id}`);
+  assert.equal(r.status, 404, 'andermans highlight niet verwijderen');
+
+  // eigenaar bewerkt -> sport 'alle'
+  r = await anna.req('PUT', `/api/highlights/${hl.id}`, { name: 'Nog mooier', sport: 'alle' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.highlight.name, 'Nog mooier');
+  assert.equal(r.data.highlight.sport, 'alle');
+
+  // sport 'alle' matcht nu wel de mtb-filter
+  r = await anna.req('GET', '/api/highlights?bbox=4.0,50.8,4.4,51.0&sport=mtb');
+  assert.ok(r.data.highlights.some((x) => x.id === hl.id), "sport 'alle' matcht elke sportfilter");
+
+  // eigenaar verwijdert
+  r = await anna.req('DELETE', `/api/highlights/${hl.id}`);
+  assert.equal(r.status, 200);
+  assert.equal(r.data.ok, true);
+});
+
+test('highlights: validatie en auth', async () => {
+  const anon = client();
+  let r = await anon.req('GET', '/api/highlights?bbox=4.0,50.8,4.4,51.0');
+  assert.equal(r.status, 401, 'auth verplicht');
+
+  const c = client();
+  await c.req('POST', '/api/auth/register', { email: 'hl-val@test.be', name: 'Valid', password: 'wachtwoord1' });
+  r = await c.req('POST', '/api/highlights', { name: '', sport: 'wandelen', track: TRACK.slice(0, 5) });
+  assert.equal(r.status, 400, 'lege naam geweigerd');
+  r = await c.req('POST', '/api/highlights', { name: 'x', sport: 'zwemmen', track: TRACK.slice(0, 5) });
+  assert.equal(r.status, 400, 'onbekende sport geweigerd');
+  r = await c.req('POST', '/api/highlights', { name: 'x', sport: 'wandelen', track: [[4.18, 50.93]] });
+  assert.equal(r.status, 400, 'te korte track geweigerd');
+});
