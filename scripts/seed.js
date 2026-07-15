@@ -30,6 +30,25 @@ function loop(lonC, latC, straalKm, punten, hoogteBasis, hoogteAmp) {
   return track;
 }
 
+// Opruimoptie: npm run seed -- --verwijder-voorbeelden
+// (wist de voorbeeldroutes en -highlights van het demo-account; het account blijft)
+if (process.argv.includes('--verwijder-voorbeelden')) {
+  const demo = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@gout.be');
+  if (demo) {
+    const namen = ['Lus door de Brabantse Kouters', 'MTB-rondje Affligem', 'Dendervallei-verkenner'];
+    for (const n of namen) {
+      const r = db.prepare('DELETE FROM routes WHERE user_id = ? AND name = ?').run(demo.id, n);
+      if (r.changes) console.log(`✘ route verwijderd: ${n}`);
+    }
+    const h = db.prepare('DELETE FROM highlights WHERE user_id = ?').run(demo.id);
+    if (h.changes) console.log(`✘ ${h.changes} voorbeeld-highlight(s) verwijderd`);
+    console.log('Voorbeelddata opgeruimd.');
+  } else {
+    console.log('Geen demo-account gevonden — niets te doen.');
+  }
+  process.exit(0);
+}
+
 const demoId = ensureUser('demo@gout.be', 'Demo Wandelaar', 'demo1234', '#33586e');
 
 const voorbeelden = [
