@@ -6,19 +6,25 @@ import L from 'leaflet';
 import { api } from '../api';
 import { navigate } from '../router';
 import {
-  el, svgEl, icons, sportIcon, SPORTS,
+  el, svgEl, icons, sportIcon, sportLabel, SPORTS,
   fmtKm, fmtM, fmtDur, difficultyBadge, toast, modal, confirmDialog, debounce,
 } from '../ui';
 import {
-  createMap, trackToLatLngs, fitToTrack, waypointIcon, hoverMarker,
+  createMap, trackToLatLngs, fitToTrack, waypointIcon, hoverMarker, positionIcon,
   ROUTE_STYLE, ROUTE_CASING, BEELINE_STYLE,
 } from '../lib/map';
-import { trackDistance, ascentDescent, simplify } from '../lib/geo';
+import { trackDistance, ascentDescent, simplify, haversine } from '../lib/geo';
 import { estimateDuration, difficulty } from '../lib/estimate';
 import { renderElevation, type ElevationProfile } from '../lib/elevation';
 import { downloadGpx } from '../lib/gpx';
 import { routeLeg, beelineLeg } from '../lib/brouter';
-import type { RouteFull, Sport, TrackPoint, Waypoint } from '../types';
+import type { Highlight, RouteFull, Sport, TrackPoint, Waypoint } from '../types';
+
+// Bekende, populaire lange routes (snelkeuze in de 'Bekende routes'-modal).
+const KNOWN_CHIPS = [
+  'Camino Francés', 'Via Turonensis', 'Via Podiensis (GR65)',
+  'GR 5', 'GR 12', 'GR 128 Vlaanderen',
+];
 
 export function planView(
   _container: HTMLElement,
@@ -41,13 +47,29 @@ export function planView(
     name: '', description: '', visibility: 'private',
   };
 
+  // 'Geladen route'-modus: een kant-en-klare GR/camino uit de bibliotheek,
+  // zonder bewerkbare waypoints (enkel de volledige geometrie, opslaan & GPX).
+  let loadedRoute: { name: string; ref: string | null; track: TrackPoint[] } | null = null;
+
   let elevProfile: ElevationProfile | null = null;
   let elevOpen = false;
+
+  // GPS-positie ('jij bent hier').
+  let gpsOn = false;
+  let gpsWatchId: number | null = null;
+  let gpsMarker: L.Marker | null = null;
+  let gpsCircle: L.Circle | null = null;
+  let gpsCentered = false;
+
+  // Highlights-overlay (community-toppertjes).
+  let hlOn = false;
+  let hlLayer: L.LayerGroup | null = null;
 
   const undoStack: Waypoint[][] = [];
   const redoStack: Waypoint[][] = [];
 
   const LOADING_STYLE: L.PolylineOptions = { color: '#8f8c7f', weight: 2.5, opacity: 0.75, dashArray: '4 8' };
+  const HL_STYLE: L.PolylineOptions = { color: '#e8590c', weight: 4, opacity: 0.7 };
 
   /* ------------------------------ DOM ------------------------------ */
   const mapEl = el('div', { style: 'position:absolute;inset:0;' });
@@ -70,6 +92,12 @@ export function planView(
       return b;
     }),
   );
+
+  // 'Bekende routes'-knop (GR's & camino's) — links, bij het zoekveld.
+  const knownBtn = el('button', {
+    type: 'button', class: 'btn plan-known', onclick: openKnownRoutes,
+    title: 'Bekende routes (GR’s & camino’s)',
+  }, svgEl(icons.map), el('span', { class: 'plan-known-label' }, 'Bekende routes'));
 
   // zoeken
   const searchInput = el('input', {
@@ -113,10 +141,12 @@ export function planView(
   const redoBtn = iconBtn(icons.redo, 'Opnieuw (Ctrl+Shift+Z)', redo);
   const reverseBtn = iconBtn(icons.reverse, 'Route omkeren', reverseRoute);
   const beelineBtn = iconBtn(icons.route, 'Nieuwe segmenten hemelsbreed aan/uit', toggleBeeline);
-  const locateBtn = iconBtn(icons.locate, 'Naar mijn locatie', locateMe);
+  const gpsBtn = iconBtn(icons.locate, 'Toon mijn positie (GPS)', toggleGps);
+  const hlBtn = iconBtn(icons.flag, 'Highlights tonen', toggleHighlights);
+  const loopBtn = iconBtn(icons.route, 'Sluit de lus', () => closeLoop(true));
   const clearBtn = iconBtn(icons.trash, 'Alles wissen', clearAll);
   const actions = el('div', { class: 'plan-actions' },
-    undoBtn, redoBtn, reverseBtn, beelineBtn, locateBtn, clearBtn);
+    undoBtn, redoBtn, reverseBtn, beelineBtn, gpsBtn, hlBtn, loopBtn, clearBtn);
 
   // statsbalk + hoogteprofiel
   const distV = el('b', {}, '0 km');
@@ -154,22 +184,31 @@ export function planView(
     svgEl(icons.map),
     el('div', {}, 'Klik op de kaart om je route te beginnen'),
   );
+  // De hint vervaagt na 8 s vanzelf (of verdwijnt meteen bij het eerste punt).
+  let hintTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => hint.classList.add('faded'), 8000);
 
+  const topleft = el('div', { class: 'plan-topleft' }, knownBtn, searchWrap, sportPicker);
   holder.append(
-    el('div', { class: 'plan-topleft' }, searchWrap, sportPicker),
+    topleft,
     el('div', { class: 'plan-topright' }, actions),
     hint,
     statsCard,
   );
 
   // panelen mogen de kaart niet aansturen
-  for (const p of [searchWrap, sportPicker, actions, statsCard]) {
+  for (const p of [knownBtn, searchWrap, sportPicker, actions, statsCard]) {
     L.DomEvent.disableClickPropagation(p);
     L.DomEvent.disableScrollPropagation(p);
   }
 
-  map.on('click', (e: L.LeafletMouseEvent) => {
+  map.on('click', async (e: L.LeafletMouseEvent) => {
     if (ignoreNextMapClick) { ignoreNextMapClick = false; return; }
+    if (loadedRoute) {
+      const ok = await confirmDialog('Geladen route vervangen?',
+        'Wil je de geladen route vervangen door een eigen route? Je begint dan met een leeg plan.', 'Ja, eigen route');
+      if (!ok) return;
+      exitLoadedMode();
+    }
     addPoint(e.latlng.lng, e.latlng.lat);
   });
 
@@ -258,11 +297,32 @@ export function planView(
     afterChange();
   }
 
+  // Lus sluiten: voeg een eindpunt toe op de startcoördinaat.
+  function loopClosed(): boolean {
+    if (waypoints.length < 2) return true;
+    const a = waypoints[0], b = waypoints[waypoints.length - 1];
+    return haversine(a.lon, a.lat, b.lon, b.lat) < 30;
+  }
+
+  function closeLoop(fromButton = false) {
+    if (loadedRoute || waypoints.length < 2) return;
+    if (loopClosed()) { if (!fromButton) toast('De lus is al gesloten.'); return; }
+    pushUndo();
+    const a = waypoints[0];
+    const wp: Waypoint = { lon: a.lon, lat: a.lat };
+    if (beelineMode) wp.beeline = true;
+    waypoints.push(wp);
+    legTracks.push(null);
+    afterChange();
+    toast('Lus gesloten.');
+  }
+
   function setSport(s: Sport) {
     if (s === sport) return;
     sport = s;
     for (const [k, b] of sportBtns) b.classList.toggle('active', k === s);
     for (let i = 0; i < legTracks.length; i++) if (!waypoints[i + 1].beeline) legTracks[i] = null;
+    if (hlOn) loadHighlights();
     afterChange();
   }
 
@@ -272,16 +332,124 @@ export function planView(
     beelineBtn.title = beelineMode ? 'Hemelsbreed staat aan' : 'Nieuwe segmenten hemelsbreed aan/uit';
   }
 
-  function locateMe() {
+  /* ------------------------- GPS-positie ------------------------- */
+  function toggleGps() {
+    if (gpsOn) stopGps();
+    else startGps(true);
+  }
+
+  function startGps(center: boolean) {
     if (!navigator.geolocation) { toast('Je toestel ondersteunt geen locatiebepaling.', 'error'); return; }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => map.setView([pos.coords.latitude, pos.coords.longitude], 14),
-      () => toast('Je locatie kon niet bepaald worden.', 'error'),
-      { enableHighAccuracy: true, timeout: 8000 },
+    gpsOn = true;
+    gpsCentered = !center;
+    gpsBtn.classList.add('active');
+    gpsBtn.title = 'Mijn positie verbergen';
+    try { localStorage.setItem('gout.plannerGps', '1'); } catch { /* privémodus */ }
+    gpsWatchId = navigator.geolocation.watchPosition(onGpsFix, onGpsError,
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+  }
+
+  function onGpsFix(pos: GeolocationPosition) {
+    const { latitude, longitude, accuracy } = pos.coords;
+    if (!gpsMarker) {
+      gpsMarker = L.marker([latitude, longitude], { icon: positionIcon(), interactive: false, keyboard: false, zIndexOffset: 1000 }).addTo(map);
+    } else {
+      gpsMarker.setLatLng([latitude, longitude]);
+    }
+    if (!gpsCircle) {
+      gpsCircle = L.circle([latitude, longitude], { radius: accuracy, color: '#2b6fe0', weight: 1, opacity: 0.5, fillColor: '#2b6fe0', fillOpacity: 0.12, interactive: false }).addTo(map);
+    } else {
+      gpsCircle.setLatLng([latitude, longitude]);
+      gpsCircle.setRadius(accuracy);
+    }
+    if (!gpsCentered) {
+      map.setView([latitude, longitude], Math.max(map.getZoom(), 14));
+      gpsCentered = true;
+    }
+  }
+
+  function onGpsError() {
+    toast('Je locatie kon niet bepaald worden.', 'error');
+    stopGps();
+  }
+
+  function stopGps() {
+    gpsOn = false;
+    gpsBtn.classList.remove('active');
+    gpsBtn.title = 'Toon mijn positie (GPS)';
+    try { localStorage.setItem('gout.plannerGps', '0'); } catch { /* privémodus */ }
+    if (gpsWatchId !== null && navigator.geolocation) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+    if (gpsMarker) { gpsMarker.remove(); gpsMarker = null; }
+    if (gpsCircle) { gpsCircle.remove(); gpsCircle = null; }
+    gpsCentered = false;
+  }
+
+  /* ------------------------- highlights-overlay ------------------------- */
+  const flagIcon = L.divIcon({ className: '', iconSize: [24, 24], iconAnchor: [12, 22], html: `<div class="hl-flag">${icons.flag}</div>` });
+
+  function toggleHighlights() {
+    hlOn = !hlOn;
+    hlBtn.classList.toggle('active', hlOn);
+    hlBtn.title = hlOn ? 'Highlights verbergen' : 'Highlights tonen';
+    try { localStorage.setItem('gout.plannerHl', hlOn ? '1' : '0'); } catch { /* privémodus */ }
+    if (hlOn) {
+      if (!hlLayer) hlLayer = L.layerGroup().addTo(map);
+      loadHighlights();
+      map.on('moveend', hlMoveHandler);
+    } else {
+      map.off('moveend', hlMoveHandler);
+      if (hlLayer) hlLayer.clearLayers();
+    }
+  }
+
+  const hlMoveHandler = debounce(() => { if (hlOn) loadHighlights(); }, 600);
+
+  async function loadHighlights() {
+    if (!hlOn) return;
+    const b = map.getBounds();
+    const bbox = `${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
+    try {
+      const { highlights } = await api.get<{ highlights: Highlight[] }>(
+        `/api/highlights?bbox=${encodeURIComponent(bbox)}&sport=${encodeURIComponent(sport)}`);
+      if (hlOn) drawHighlights(highlights);
+    } catch { /* stil: highlights zijn niet essentieel */ }
+  }
+
+  function drawHighlights(list: Highlight[]) {
+    if (!hlLayer) return;
+    hlLayer.clearLayers();
+    for (const h of list) {
+      if (!h.track || h.track.length < 2) continue;
+      L.polyline(trackToLatLngs(h.track), HL_STYLE).addTo(hlLayer);
+      const mid = h.track[Math.floor(h.track.length / 2)];
+      L.marker([mid[1], mid[0]], { icon: flagIcon }).bindPopup(hlPopup(h)).addTo(hlLayer);
+    }
+  }
+
+  function hlPopup(h: Highlight): HTMLElement {
+    const ic = h.sport === 'alle' ? icons.flag : sportIcon(h.sport);
+    const lbl = h.sport === 'alle' ? 'Alle sporten' : sportLabel(h.sport);
+    return el('div', { class: 'hl-popup' },
+      el('strong', { class: 'hl-pop-name' }, h.name),
+      el('div', { class: 'hl-pop-meta' },
+        svgEl(ic), el('span', {}, lbl),
+        el('span', { class: 'hl-pop-sep' }, '·'),
+        el('span', {}, `${h.votes} ${h.votes === 1 ? 'stem' : 'stemmen'}`),
+      ),
+      h.description ? el('p', { class: 'hl-pop-desc' }, h.description) : null,
+      h.ownerName ? el('div', { class: 'hl-pop-owner' }, 'door ' + h.ownerName) : null,
     );
   }
 
   async function clearAll() {
+    if (loadedRoute) {
+      const ok = await confirmDialog('Alles wissen?',
+        'De geladen route wordt van de kaart gehaald.', 'Wissen');
+      if (!ok) return;
+      exitLoadedMode();
+      afterChange();
+      return;
+    }
     if (!waypoints.length) return;
     const ok = await confirmDialog('Alles wissen?',
       'Je hele route wordt gewist. Je kan dit terugdraaien met Ctrl+Z.', 'Wissen');
@@ -334,7 +502,23 @@ export function planView(
     return out;
   }
 
+  function currentTrack(): TrackPoint[] {
+    return loadedRoute ? loadedRoute.track : assembleTrack();
+  }
+
   function updateStats() {
+    if (loadedRoute) {
+      distV.textContent = fmtKm(trackDistance(loadedRoute.track));
+      durV.textContent = '—'; durV.title = 'Geen hoogtedata: tijd niet te schatten';
+      upV.textContent = '—'; upV.title = 'Geen hoogtedata beschikbaar voor bekende routes';
+      downV.textContent = '—'; downV.title = 'Geen hoogtedata beschikbaar voor bekende routes';
+      diffHolder.replaceChildren(
+        el('span', { class: 'badge badge-neutral plan-loaded-badge', title: 'Geladen route uit de bibliotheek — bewaar of download' },
+          'Geladen: ' + loadedRoute.name + (loadedRoute.ref ? ' · ' + loadedRoute.ref : '')),
+      );
+      return;
+    }
+    durV.title = ''; upV.title = ''; downV.title = '';
     const track = assembleTrack();
     const distM = track.length >= 2 ? trackDistance(track) : 0;
     const { ascent, descent } = ascentDescent(track);
@@ -351,10 +535,11 @@ export function planView(
     undoBtn.disabled = undoStack.length === 0;
     redoBtn.disabled = redoStack.length === 0;
     const enough = waypoints.length >= 2;
-    saveBtn.disabled = !enough;
-    gpxBtn.disabled = !enough;
+    saveBtn.disabled = !(enough || loadedRoute);
+    gpxBtn.disabled = !(enough || loadedRoute);
     reverseBtn.disabled = !enough;
-    clearBtn.disabled = waypoints.length === 0;
+    clearBtn.disabled = waypoints.length === 0 && !loadedRoute;
+    loopBtn.disabled = !enough || loopClosed();
   }
 
   function updateElevation() {
@@ -362,7 +547,7 @@ export function planView(
     elevProfile?.destroy();
     elevProfile = null;
     elevBox.replaceChildren();
-    const track = assembleTrack();
+    const track = currentTrack();
     if (track.length < 2) {
       elevBox.append(el('div', { class: 'plan-elev-empty' }, 'Voeg minstens twee punten toe voor het hoogteprofiel.'));
       return;
@@ -386,19 +571,20 @@ export function planView(
   }
 
   function exportGpx() {
-    const track = assembleTrack();
+    const track = currentTrack();
     if (track.length < 2) { toast('Voeg eerst minstens twee punten toe.', 'error'); return; }
-    downloadGpx(editMeta.name || 'Mijn route', track, sport);
+    downloadGpx((loadedRoute ? loadedRoute.name : editMeta.name) || 'Mijn route', track, sport);
   }
 
   /* ------------------------- tekenen ------------------------- */
   function afterChange() {
-    hint.style.display = waypoints.length === 0 ? '' : 'none';
+    hint.style.display = (waypoints.length === 0 && !loadedRoute) ? '' : 'none';
+    if (hint.style.display === 'none' && hintTimer) { clearTimeout(hintTimer); hintTimer = undefined; }
     redraw();
     updateStats();
     updateButtons();
     updateElevation();
-    computeMissing();
+    if (!loadedRoute) computeMissing();
   }
 
   function attachLegClick(poly: L.Polyline, i: number) {
@@ -412,6 +598,18 @@ export function planView(
   function redraw() {
     legLayer.clearLayers();
     markerLayer.clearLayers();
+
+    if (loadedRoute) {
+      const t = loadedRoute.track;
+      // Niet-interactief zodat een klik op de lijn de kaart-klik (vervangen) bereikt.
+      L.polyline(trackToLatLngs(t), { ...ROUTE_CASING, interactive: false }).addTo(legLayer);
+      L.polyline(trackToLatLngs(t), { ...ROUTE_STYLE, interactive: false }).addTo(legLayer);
+      const a = t[0], b = t[t.length - 1];
+      L.marker([a[1], a[0]], { icon: waypointIcon('start'), interactive: false }).addTo(markerLayer);
+      L.marker([b[1], b[0]], { icon: waypointIcon('end'), interactive: false }).addTo(markerLayer);
+      return;
+    }
+
     const n = waypoints.length;
 
     for (let i = 0; i < n - 1; i++) {
@@ -441,15 +639,114 @@ export function planView(
       m.on('click', () => {
         ignoreNextMapClick = true;
         queueMicrotask(() => { ignoreNextMapClick = false; });
+        // Klik op de START met >=2 punten sluit de lus; enkel bij exact 1 punt
+        // verwijdert een klik het startpunt nog.
+        if (i === 0 && waypoints.length >= 2) { closeLoop(false); return; }
         removeWaypoint(i);
       });
       m.addTo(markerLayer);
     }
   }
 
+  /* ------------------------- bekende routes ------------------------- */
+  function openKnownRoutes() {
+    const info = el('p', { class: 'kr-info' }, 'Vind een GR of camino en laad ze in één klik als route.');
+    const input = el('input', { class: 'input input-search', type: 'search', placeholder: 'Zoek een route (bv. GR 5)…', autocomplete: 'off' });
+    const chipsWrap = el('div', { class: 'kr-chips' },
+      KNOWN_CHIPS.map((c) => el('button', { type: 'button', class: 'chip', onclick: () => { input.value = c; showSpinner(); doKnownSearch(c); } }, c)),
+    );
+    const list = el('div', { class: 'kr-results' },
+      el('div', { class: 'kr-empty' }, 'Typ hierboven of kies een route om te beginnen.'));
+    const box = el('div', { class: 'kr-modal' },
+      el('h2', {}, 'Bekende routes'), info, input, chipsWrap, list);
+    const close = modal(box);
+    setTimeout(() => input.focus(), 0);
+
+    function showSpinner() { list.replaceChildren(el('div', { class: 'spinner' })); }
+
+    const runKnown = debounce((q: string) => doKnownSearch(q), 400);
+    input.addEventListener('input', () => {
+      const q = input.value.trim();
+      if (q.length < 2) { list.replaceChildren(el('div', { class: 'kr-empty' }, 'Typ minstens twee letters.')); return; }
+      showSpinner();
+      runKnown(q);
+    });
+
+    async function doKnownSearch(q: string) {
+      if (q.trim().length < 2) return;
+      try {
+        const { routes } = await api.get<{ routes: { id: number; name: string; ref: string | null; group: string | null }[] }>(
+          `/api/knownroutes?q=${encodeURIComponent(q)}&sport=${encodeURIComponent(sport)}`);
+        if (!routes.length) {
+          list.replaceChildren(el('div', { class: 'kr-empty' }, 'Niets gevonden. Probeer een andere zoekterm.'));
+          return;
+        }
+        list.replaceChildren(
+          ...routes.map((r) => el('button', { type: 'button', class: 'kr-result', onclick: () => loadKnown(r.id) },
+            el('span', { class: 'kr-name' }, r.name),
+            r.ref ? el('span', { class: 'badge badge-neutral kr-ref' }, r.ref) : null,
+          )),
+        );
+      } catch (err: any) {
+        list.replaceChildren(el('div', { class: 'kr-empty' }, err?.message || 'Zoeken lukte niet. Probeer opnieuw.'));
+      }
+    }
+
+    async function loadKnown(id: number) {
+      if (waypoints.length >= 1 || loadedRoute) {
+        const ok = await confirmDialog('Route vervangen?',
+          'Je huidige plan wordt vervangen door de gekozen route.', 'Vervangen');
+        if (!ok) return;
+      }
+      input.disabled = true;
+      list.replaceChildren(el('div', { class: 'kr-loading' },
+        el('div', { class: 'spinner' }),
+        el('p', {}, 'Route ophalen — lange routes kunnen even duren…'),
+      ));
+      try {
+        const data = await api.get<{ name: string; ref: string | null; track: [number, number][]; note: string }>(
+          `/api/knownroutes/${id}?sport=${encodeURIComponent(sport)}`);
+        if (!data.track || data.track.length < 2) throw new Error('Deze route bevat geen bruikbare geometrie.');
+        close();
+        enterLoadedMode(data.name, data.ref, data.track.map((p) => [p[0], p[1]] as TrackPoint));
+        toast('Route geladen: ' + data.name);
+      } catch (err: any) {
+        input.disabled = false;
+        const msg = err?.message || 'Kon de route niet ophalen. Probeer opnieuw.';
+        list.replaceChildren(el('div', { class: 'kr-empty' }, msg));
+        toast(msg, 'error');
+      }
+    }
+  }
+
+  function enterLoadedMode(name: string, ref: string | null, track: TrackPoint[]) {
+    gen++; // eventuele hangende leg-berekeningen negeren
+    stopBeelineIfNeeded();
+    loadedRoute = { name, ref, track };
+    waypoints = [];
+    legTracks = [];
+    undoStack.length = 0;
+    redoStack.length = 0;
+    editId = null;
+    editMeta = { name, description: '', visibility: 'private' };
+    afterChange();
+    fitToTrack(map, track);
+  }
+
+  function stopBeelineIfNeeded() {
+    if (beelineMode) toggleBeeline();
+  }
+
+  function exitLoadedMode() {
+    loadedRoute = null;
+    legLayer.clearLayers();
+    markerLayer.clearLayers();
+    editMeta = { name: '', description: '', visibility: 'private' };
+  }
+
   /* ------------------------- opslaan ------------------------- */
   function openSaveModal() {
-    if (assembleTrack().length < 2) { toast('Voeg minstens twee punten toe.', 'error'); return; }
+    if (currentTrack().length < 2) { toast('Voeg minstens twee punten toe.', 'error'); return; }
 
     const nameInput = el('input', { class: 'input', type: 'text', maxlength: '120', value: editMeta.name, placeholder: 'bv. Ronde van het Hallerbos' });
     const descInput = el('textarea', { class: 'input', maxlength: '2000', placeholder: 'Optioneel: wat maakt deze route bijzonder?' });
@@ -464,6 +761,7 @@ export function planView(
 
     const box = el('div', {},
       el('h2', {}, editId ? 'Route bijwerken' : 'Route opslaan'),
+      loadedRoute ? el('p', { class: 'kr-info' }, 'Bekende route uit de bibliotheek. Je bewaart ze als je eigen route.') : null,
       el('label', { class: 'field' }, el('span', {}, 'Naam'), nameInput),
       el('label', { class: 'field' }, el('span', {}, 'Beschrijving'), descInput),
       el('label', { class: 'field' }, el('span', {}, 'Zichtbaarheid'), visSelect),
@@ -482,11 +780,13 @@ export function planView(
       submitBtn.disabled = true;
       submitBtn.textContent = 'Bezig…';
       try {
-        const track = assembleTrack();
-        const wps = waypoints.map((w) => (w.beeline ? { lon: w.lon, lat: w.lat, beeline: true } : { lon: w.lon, lat: w.lat }));
+        const track = currentTrack();
+        const wps = loadedRoute ? null : waypoints.map((w) => (w.beeline ? { lon: w.lon, lat: w.lat, beeline: true } : { lon: w.lon, lat: w.lat }));
+        const startLat = loadedRoute ? loadedRoute.track[0][1] : waypoints[0].lat;
+        const startLon = loadedRoute ? loadedRoute.track[0][0] : waypoints[0].lon;
         let region: string | null = null;
         try {
-          const r = await api.get<{ region: string | null }>(`/api/revgeocode?lat=${waypoints[0].lat}&lon=${waypoints[0].lon}`);
+          const r = await api.get<{ region: string | null }>(`/api/revgeocode?lat=${startLat}&lon=${startLon}`);
           region = r.region;
         } catch { /* stil: regio is best-effort */ }
         const visibility = visSelect.value === 'public' ? 'public' : 'private';
@@ -581,9 +881,22 @@ export function planView(
   if (editParam && /^\d+$/.test(editParam)) loadEdit(Number(editParam));
   else afterChange();
 
+  // Voorkeuren herstellen: GPS-positie en highlights-overlay.
+  try {
+    if (localStorage.getItem('gout.plannerGps') === '1' && navigator.geolocation) {
+      startGps(!(editParam && /^\d+$/.test(editParam)));
+    }
+  } catch { /* privémodus */ }
+  try {
+    if (localStorage.getItem('gout.plannerHl') === '1') toggleHighlights();
+  } catch { /* privémodus */ }
+
   return () => {
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('mousedown', onDocDown);
+    if (hintTimer) clearTimeout(hintTimer);
+    stopGps();
+    map.off('moveend', hlMoveHandler);
     elevProfile?.destroy();
     hover.remove();
     map.remove();

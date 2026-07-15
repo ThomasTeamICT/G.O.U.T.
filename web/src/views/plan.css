@@ -10,7 +10,7 @@
 .plan-page.page-wide { min-height: 0; }
 .plan-page .map-holder { flex: 1 1 0%; min-height: 0; height: auto; order: 0; }
 
-/* linksboven: zoeken + sport-picker */
+/* linksboven: bekende routes + zoeken + sport-picker */
 .plan-topleft {
   position: absolute; top: 12px; left: 52px; z-index: 800;
   display: flex; flex-direction: column; gap: .5rem;
@@ -18,6 +18,15 @@
 }
 .plan-topleft .sport-picker { align-self: flex-start; }
 .sp-label { display: inline; }
+
+/* Bekende routes-knop (GR's & camino's) */
+.plan-known {
+  align-self: flex-start; background: var(--surface); color: var(--ink);
+  border: none; box-shadow: var(--shadow);
+}
+.plan-known:hover { background: var(--surface-2); }
+.plan-known svg { color: var(--green); }
+.plan-known-label { display: inline; }
 
 .plan-search { position: relative; }
 .plan-search .input-search {
@@ -49,15 +58,19 @@
 .btn-icon.active { background: var(--green); border-color: var(--green); color: #fff; }
 .btn-icon:disabled { opacity: .45; cursor: not-allowed; }
 
-/* hint bij eerste gebruik — gecentreerd, met maximale breedte en niet klikbaar */
+/* hint bij eerste gebruik — compacte pil, onderaan gecentreerd boven de
+   statsbalk, niet klikbaar, en vervaagt na 8 s (klasse .faded). */
 .plan-hint {
-  position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%);
-  z-index: 700; pointer-events: none; text-align: center;
-  background: var(--surface); color: var(--ink-soft); font-weight: 600;
-  padding: 1rem 1.3rem; border-radius: var(--radius); box-shadow: var(--shadow-pop);
-  max-width: min(320px, calc(100% - 40px));
+  position: absolute; left: 50%; bottom: 104px; transform: translateX(-50%);
+  z-index: 700; pointer-events: none;
+  display: flex; align-items: center; gap: .5rem; text-align: left;
+  background: var(--surface); color: var(--ink-soft); font-weight: 600; font-size: .9rem;
+  padding: .55rem .95rem; border-radius: 999px; box-shadow: var(--shadow-pop);
+  max-width: min(340px, calc(100% - 40px));
+  transition: opacity .8s ease;
 }
-.plan-hint svg { width: 32px; height: 32px; margin: 0 auto .5rem; color: var(--green); }
+.plan-hint.faded { opacity: 0; }
+.plan-hint svg { width: 20px; height: 20px; margin: 0; color: var(--green); flex: none; }
 .plan-hint > div { white-space: normal; }
 
 /* statsbalk onderaan */
@@ -71,6 +84,10 @@
 .plan-stats-row .statline { flex: 1 1 auto; min-width: max-content; flex-wrap: nowrap; }
 .plan-diff { display: inline-flex; align-items: center; flex: none; }
 .plan-diff .badge { white-space: nowrap; }
+.plan-loaded-badge {
+  display: inline-block; max-width: 240px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
 .plan-stats-actions { display: flex; gap: .4rem; align-items: center; margin-left: auto; flex: none; }
 .stat-ico { display: inline-flex; align-items: center; gap: .25rem; }
 .stat-ico svg { width: 15px; height: 15px; color: var(--muted); }
@@ -79,6 +96,41 @@
 
 .plan-elev { margin-top: .7rem; border-top: 1px solid var(--line); padding-top: .6rem; }
 .plan-elev-empty { color: var(--muted); font-size: .85rem; text-align: center; padding: 1.2rem 0; }
+
+/* ---------- bekende-routes-modal ---------- */
+.kr-modal .kr-info { color: var(--muted); font-size: .88rem; margin: -.4rem 0 .8rem; }
+.kr-modal .kr-info + .input-search { box-shadow: var(--shadow); }
+.kr-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .75rem 0 .2rem; }
+.kr-results {
+  margin-top: .5rem; max-height: 46vh; overflow: auto;
+  display: flex; flex-direction: column; gap: .35rem;
+}
+.kr-result {
+  display: flex; align-items: center; gap: .6rem; width: 100%; text-align: left;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-s);
+  padding: .6rem .75rem; cursor: pointer; font: 600 .92rem var(--font); color: var(--ink);
+}
+.kr-result:hover { background: #e6dfd0; }
+.kr-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.kr-ref { flex: none; }
+.kr-empty { color: var(--muted); text-align: center; padding: 1.4rem 1rem; font-size: .9rem; }
+.kr-loading { text-align: center; padding: 1.2rem 1rem; }
+.kr-loading p { color: var(--muted); font-size: .88rem; margin-top: .5rem; }
+
+/* ---------- highlights-overlay ---------- */
+.hl-flag {
+  width: 24px; height: 24px; display: grid; place-items: center;
+  background: var(--accent); color: #fff; border-radius: 999px 999px 999px 2px;
+  border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35);
+}
+.hl-flag svg { width: 13px; height: 13px; }
+.hl-popup { min-width: 150px; max-width: 220px; }
+.hl-pop-name { display: block; font-size: .98rem; margin-bottom: .25rem; }
+.hl-pop-meta { display: flex; align-items: center; gap: .3rem; color: var(--ink-soft); font-size: .82rem; font-weight: 600; }
+.hl-pop-meta svg { width: 15px; height: 15px; color: var(--muted); }
+.hl-pop-sep { color: var(--line); }
+.hl-pop-desc { margin: .45rem 0 .2rem; font-size: .85rem; color: var(--ink); }
+.hl-pop-owner { color: var(--muted); font-size: .78rem; margin-top: .25rem; }
 
 /* Tablet & laptop gebruiken dezelfde schikking als desktop; die schaalt mee.
    Enkel op smalle schermen herwerken we de volledige layout (hieronder). */
@@ -89,29 +141,31 @@
      flex:none / 45vh uit discover.css). */
   .plan-page .map-holder { flex: 1 1 0%; height: auto; min-height: 0; }
 
-  /* knoppenrij: compact, kleinere iconen, mag over twee rijen,
+  /* knoppenrij: compact, kleinere iconen, mag over meerdere rijen,
      netjes vrij van de lagencontrole rechtsboven */
   .plan-topright { top: 10px; right: 52px; }
   .plan-actions { flex-wrap: wrap; gap: .3rem; max-width: 108px; justify-content: flex-end; }
   .plan-actions .btn-icon { padding: .42rem; }
   .plan-actions .btn-icon svg { width: 16px; height: 16px; }
 
-  /* zoeken + sport-picker: compact bovenaan, stopt vóór de knoppenrij */
+  /* bekende routes + zoeken + sport-picker: compact bovenaan, stopt vóór de knoppenrij */
   .plan-topleft {
     top: 10px; left: 52px; gap: .35rem;
     max-width: calc(100% - 222px);
   }
+  .plan-known { padding: .46rem .5rem; }
+  .plan-known-label { display: none; }
   .plan-search .input-search { width: 100%; }
   .plan-topleft .sport-picker { padding: .2rem; }
   .plan-topleft .sport-picker button { padding: .4rem .5rem; }
   .plan-topleft .sport-picker .sp-label { display: none; }
 
-  /* hint gecentreerd en compact, niet klikbaar (blijft pointer-events:none) */
+  /* hint: compacte pil boven de vaste statsbalk, niet klikbaar */
   .plan-hint {
-    top: 38%; padding: .8rem 1rem;
-    max-width: min(260px, calc(100% - 32px)); font-size: .92rem;
+    top: auto; bottom: 88px; padding: .5rem .8rem;
+    max-width: min(300px, calc(100% - 32px)); font-size: .84rem;
   }
-  .plan-hint svg { width: 26px; height: 26px; margin-bottom: .35rem; }
+  .plan-hint svg { width: 18px; height: 18px; }
 
   /* statsbalk: vaste balk onderaan over de volle breedte, met het
      hoogteprofiel eronder */
@@ -126,6 +180,7 @@
     min-width: 0; flex: 1 1 100%; font-size: .82rem; gap: .2rem .5rem;
   }
   .plan-stats-row .statline .sep { display: none; }
+  .plan-loaded-badge { max-width: 60vw; }
   .plan-stats-actions { margin-left: auto; }
   .plan-elev { margin-top: .5rem; padding-top: .5rem; }
 }
