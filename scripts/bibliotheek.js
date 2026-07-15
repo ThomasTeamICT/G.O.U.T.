@@ -253,6 +253,7 @@ const cacheAanwezig = (id) => existsSync(join(DATA_DIR, 'cache', `knownroute-${i
 async function verwerkGemeente(gemeente, kandidaten, bibId, droog) {
   const tellers = {};
   const verworpen = [];
+  let fetchFouten = 0;
   for (const sport of ['wandelen', 'mtb']) {
     const cfg = SPORTS[sport];
     const lijst = kandidaten[sport].get(gemeente.id) || [];
@@ -266,9 +267,14 @@ async function verwerkGemeente(gemeente, kandidaten, bibId, droog) {
       let geo;
       try {
         geo = await haalGeometrieSnel(kand.id);
-      } catch {
+      } catch (e) {
         if (!uitCache) await sleep(PAUZE_MS);
-        verworpen.push({ naam: kand.naam || `OSM ${kand.id}`, reden: 'geen geometrie' });
+        if (e?.status === 404) {
+          verworpen.push({ naam: kand.naam || `OSM ${kand.id}`, reden: 'geen geometrie' });
+        } else {
+          fetchFouten++;
+          verworpen.push({ naam: kand.naam || `OSM ${kand.id}`, reden: 'server druk' });
+        }
         continue;
       }
       if (!uitCache) await sleep(PAUZE_MS); // pauze na een echte ophaling
@@ -287,11 +293,16 @@ async function verwerkGemeente(gemeente, kandidaten, bibId, droog) {
   let regel = `${gemeente.naam}: wandelen ${tellers.wandelen}/${PER_SPORT_MAX}, ` +
     `mtb ${tellers.mtb}/${PER_SPORT_MAX}`;
   if (verworpen.length) {
-    const details = verworpen.map((v) => (v.km != null ? `${v.km} km` : v.reden)).join(', ');
-    regel += ` (${verworpen.length} kandidaat${verworpen.length > 1 ? 'en' : ''} verworpen: ${details})`;
+    const perReden = new Map();
+    for (const v of verworpen) {
+      const k = v.km != null ? `lengte (bv. ${v.km} km)` : v.reden;
+      perReden.set(k, (perReden.get(k) || 0) + 1);
+    }
+    const details = [...perReden.entries()].map(([k, n]) => `${n}× ${k}`).join(', ');
+    regel += ` (${verworpen.length} verworpen: ${details})`;
   }
   log(regel);
-  return tellers;
+  return { tellers, fetchFouten };
 }
 
 // ---- CLI --------------------------------------------------------------------
@@ -358,11 +369,17 @@ async function main() {
       continue; // al klaar → telt niet mee voor --max
     }
     try {
-      const tellers = await verwerkGemeente(g, kandidaten, bibId, args.droog);
+      const { tellers, fetchFouten } = await verwerkGemeente(g, kandidaten, bibId, args.droog);
+      const onvolledig = fetchFouten > 0 &&
+        (tellers.wandelen < PER_SPORT_MAX || tellers.mtb < PER_SPORT_MAX);
       if (!args.droog) {
-        voortgang[g.naam] = { status: 'klaar', ...tellers, bijgewerkt: new Date().toISOString() };
+        voortgang[g.naam] = {
+          status: onvolledig ? 'onvolledig' : 'klaar',
+          ...tellers, bijgewerkt: new Date().toISOString(),
+        };
         bewaarVoortgang(voortgang);
       }
+      if (onvolledig) log(`  ⚠ ${g.naam} onvolledig door serverdrukte — volgende run probeert opnieuw.`);
       rapport.gelukt.push(g.naam);
     } catch (e) {
       rapport.gefaald.push({ naam: g.naam, fout: e.message });

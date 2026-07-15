@@ -41,6 +41,9 @@ export async function overpassQuery(query, { timeoutMs = 100000, instances = OVE
       if (!r.ok) continue;
       const d = await r.json();
       if (!d || !Array.isArray(d.elements)) continue;
+      // Overpass meldt overbelasting soms als HTTP 200 met lege elements +
+      // een 'remark' — dat is drukte, géén geldig (leeg) resultaat.
+      if (d.elements.length === 0 && d.remark) { saw429 = true; continue; }
       return d;
     } catch { /* volgende instantie */ }
   }
