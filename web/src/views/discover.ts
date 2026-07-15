@@ -1,19 +1,28 @@
 // Ontdek — openbare routebibliotheek. Tweeluik: zijpaneel met resultaten +
 // zoekwerk links, kaart met previews rechts. Tabs: 'In dit gebied' | 'Top 10'.
+// Onder de community-resultaten: 'Aanbevolen bewegwijzerd (OpenStreetMap)' —
+// live de beste bewegwijzerde OSM-routes voor het gezochte gebied.
 
 import './discover.css';
 import L from 'leaflet';
 import { api, ApiError } from '../api';
 import { navigate } from '../router';
-import { createMap } from '../lib/map';
+import { createMap, drawTrack, fitToTrack } from '../lib/map';
+import { trackDistance } from '../lib/geo';
+import { downloadGpx } from '../lib/gpx';
 import {
   el, svgEl, icons, toast, debounce, confirmDialog,
   fmtKm, fmtM, fmtDur, difficultyBadge, svgMinimap, sportIcon, sportLabel, SPORTS,
 } from '../ui';
-import type { RouteSummary, Sport, Highlight } from '../types';
+import type { RouteSummary, RouteFull, Sport, Highlight, TrackPoint } from '../types';
 
 interface GeoResult { name: string; lat: number; lon: number }
 type Tab = 'area' | 'top';
+
+// Aanbevolen bewegwijzerde route (grondstof uit OpenStreetMap).
+interface RecItem { id: number; name: string | null; ref: string | null; distanceKm: number | null; sport: Sport }
+interface AanbevolenResponse { aanbevolen: { wandelen: RecItem[]; mtb: RecItem[] } }
+interface KnownRoute { name: string; ref: string | null; track: TrackPoint[]; note?: string }
 
 const AREA_EMPTY =
   'Geen openbare routes in dit gebied. Zoom uit of probeer een andere plek — of deel zelf de eerste!';
@@ -50,6 +59,7 @@ export function discoverView(container: HTMLElement): () => void {
   let suppressMove = false;  // eigen (programmatische) kaartbewegingen negeren
   let showHighlights = localStorage.getItem('gout.discoverHighlights') === '1';
   let destroyed = false;     // view verlaten: laat debounced werk niet meer op de kaart komen
+  let searchSeq = 0;         // volgnummer om verlate (stale) resultaten te negeren
   const polyById = new Map<number, L.Polyline>();
 
   // --- paneel-DOM ---
@@ -65,7 +75,10 @@ export function discoverView(container: HTMLElement): () => void {
   const tabTopBtn = el('button', {}, 'Top 10');
   const tabs = el('div', { class: 'tabs' }, tabAreaBtn, tabTopBtn);
 
-  const resultsEl = el('div', { class: 'discover-results' });
+  // Community-resultaten en aanbevolen sectie leven samen in de scrollende lijst.
+  const communityEl = el('div', { class: 'discover-community' });
+  const aanbevolenEl = el('div', { class: 'discover-aanbevolen' });
+  const resultsEl = el('div', { class: 'discover-results' }, communityEl, aanbevolenEl);
   const resultsHint = el('div', { class: 'discover-sub' }, AREA_SUB);
 
   const panel = el('aside', { class: 'discover-panel' },
@@ -88,6 +101,10 @@ export function discoverView(container: HTMLElement): () => void {
   const previewLayer = L.layerGroup().addTo(map);
   const highlightLayer = L.layerGroup().addTo(map); // boven de previews
   const reloadHighlights = debounce(() => { if (showHighlights) loadHighlights(); }, 600);
+
+  // Geladen bewegwijzerde route (lijn + zwevend paneel).
+  let recLayer: L.LayerGroup | null = null;
+  let recPanel: HTMLElement | null = null;
 
   const searchHereBtn = el('button', {
     class: 'btn btn-primary discover-search-here', hidden: true,
@@ -195,13 +212,13 @@ export function discoverView(container: HTMLElement): () => void {
 
   // --- resultaatweergave ---
   function showSpinner() {
-    resultsEl.replaceChildren(el('div', { class: 'spinner' }));
+    communityEl.replaceChildren(el('div', { class: 'spinner' }));
   }
 
   function renderResults(routes: RouteSummary[], opts: { ranked: boolean; emptyMsg: string }) {
-    resultsEl.replaceChildren();
+    communityEl.replaceChildren();
     if (!routes.length) {
-      resultsEl.append(
+      communityEl.append(
         el('div', { class: 'empty' }, svgEl(icons.compass), el('p', {}, opts.emptyMsg),
           el('button', { class: 'btn btn-primary', onclick: () => navigate('/plan') },
             svgEl(icons.plus), 'Route plannen'),
@@ -209,11 +226,11 @@ export function discoverView(container: HTMLElement): () => void {
       );
       return;
     }
-    routes.forEach((r, i) => resultsEl.append(renderCard(r, opts.ranked ? i + 1 : undefined)));
+    routes.forEach((r, i) => communityEl.append(renderCard(r, opts.ranked ? i + 1 : undefined)));
   }
 
   function renderError(msg: string) {
-    resultsEl.replaceChildren(el('div', { class: 'discover-error' }, msg));
+    communityEl.replaceChildren(el('div', { class: 'discover-error' }, msg));
   }
 
   function ownerText(r: RouteSummary): string {
@@ -277,6 +294,119 @@ export function discoverView(container: HTMLElement): () => void {
       btn.replaceChildren(svgEl(r.liked ? icons.heartFill : icons.heart), el('span', {}, String(r.likes)));
     } catch (e) {
       toast(e instanceof ApiError ? e.message : 'Kon je waardering niet opslaan.', 'error');
+    }
+  }
+
+  // --- Aanbevolen bewegwijzerd (OpenStreetMap) ---
+  function renderAanbevolen(groups: AanbevolenResponse['aanbevolen']) {
+    aanbevolenEl.replaceChildren();
+    const items = [...(groups.wandelen ?? []), ...(groups.mtb ?? [])];
+    if (!items.length) return; // lege sectie = verbergen
+    aanbevolenEl.append(
+      el('div', { class: 'discover-aanbevolen-head' },
+        el('h3', {}, 'Aanbevolen bewegwijzerd'),
+        el('span', { class: 'discover-aanbevolen-src' }, '(OpenStreetMap)'),
+      ),
+    );
+    for (const rec of items) aanbevolenEl.append(renderRecCard(rec));
+  }
+
+  function renderRecCard(rec: RecItem): HTMLElement {
+    const naam = rec.name || 'Bewegwijzerde route';
+    const card = el('div', {
+      class: 'rec-card', title: naam,
+      onclick: () => loadRec(rec, card),
+    },
+      el('span', { class: 'rec-sport' }, svgEl(sportIcon(rec.sport))),
+      el('div', { class: 'rec-body' },
+        el('div', { class: 'rec-title' },
+          el('span', { class: 'rec-name' }, naam),
+          rec.ref ? el('span', { class: 'badge badge-neutral rec-ref' }, rec.ref) : null,
+        ),
+        rec.distanceKm != null
+          ? el('div', { class: 'rec-dist' }, `± ${String(rec.distanceKm).replace('.', ',')} km`)
+          : null,
+      ),
+    );
+    return card;
+  }
+
+  async function loadAanbevolen(bbox: string, seq: number) {
+    const params = new URLSearchParams({ bbox });
+    if (sport) params.set('sport', sport);
+    try {
+      const { aanbevolen } = await api.get<AanbevolenResponse>(`/api/discover/aanbevolen?${params}`);
+      if (destroyed || seq !== searchSeq) return;
+      renderAanbevolen(aanbevolen);
+    } catch {
+      // Aanbevolen is aanvullende grondstof: bij een fout de sectie stil verbergen.
+      if (seq === searchSeq) aanbevolenEl.replaceChildren();
+    }
+  }
+
+  // Eén aanbeveling laden: geometrie ophalen, tekenen en paneel tonen.
+  async function loadRec(rec: RecItem, card: HTMLElement) {
+    if (card.classList.contains('loading')) return;
+    card.classList.add('loading');
+    const vorigeTitel = card.title;
+    card.title = 'Even geduld…';
+    const spin = el('span', { class: 'rec-spin' });
+    card.append(spin);
+    try {
+      const params = new URLSearchParams();
+      if (rec.sport) params.set('sport', rec.sport);
+      const data = await api.get<KnownRoute>(`/api/knownroutes/${rec.id}?${params}`);
+      if (destroyed) return;
+      showRec(rec, data);
+    } catch (e) {
+      // 429-boodschap van de server (Overpass vraagt rust) tonen zoals hij is.
+      toast(e instanceof ApiError ? e.message : 'Kon de bewegwijzerde route niet laden.', 'error');
+    } finally {
+      card.classList.remove('loading');
+      card.title = vorigeTitel;
+      spin.remove();
+    }
+  }
+
+  function showRec(rec: RecItem, data: KnownRoute) {
+    clearRec();
+    const track = data.track || [];
+    if (track.length < 2) { toast('Deze route heeft geen bruikbare geometrie.', 'error'); return; }
+    // Gewone routestijl (met witte casing), opacity .9 uit ROUTE_STYLE.
+    recLayer = drawTrack(map, track);
+    suppressMove = true;
+    fitToTrack(map, track);
+
+    const naam = rec.name || data.name || 'Bewegwijzerde route';
+    const dist = trackDistance(track);
+    recPanel = el('div', { class: 'rec-panel' },
+      el('button', { class: 'btn-icon rec-panel-close', title: 'Sluiten', onclick: clearRec }, svgEl(icons.close)),
+      el('div', { class: 'rec-panel-name' }, svgEl(sportIcon(rec.sport)), el('span', {}, naam)),
+      el('div', { class: 'rec-panel-dist' }, `${sportLabel(rec.sport)} · ${fmtKm(dist)}`),
+      el('div', { class: 'rec-panel-actions' },
+        el('button', { class: 'btn btn-primary btn-sm', onclick: () => saveRec(rec, track, naam) },
+          svgEl(icons.save), 'Bewaar in Mijn routes'),
+        el('button', { class: 'btn btn-ghost btn-sm', onclick: () => downloadGpx(naam, track, rec.sport) },
+          svgEl(icons.download), 'GPX'),
+      ),
+    );
+    mapHolder.append(recPanel);
+  }
+
+  function clearRec() {
+    if (recLayer) { recLayer.remove(); recLayer = null; }
+    if (recPanel) { recPanel.remove(); recPanel = null; }
+  }
+
+  async function saveRec(rec: RecItem, track: TrackPoint[], naam: string) {
+    try {
+      const { route } = await api.post<{ route: RouteFull }>('/api/routes', {
+        name: naam, sport: rec.sport, track, waypoints: null, region: null,
+      });
+      toast('Bewaard in Mijn routes.');
+      navigate('/route/' + route.id);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : 'Kon de route niet bewaren.', 'error');
     }
   }
 
@@ -368,7 +498,7 @@ export function discoverView(container: HTMLElement): () => void {
 
     const desc = (h.description || '').trim();
     if (desc) {
-      const short = desc.length > 150 ? desc.slice(0, 150).trimEnd() + '\u2026' : desc;
+      const short = desc.length > 150 ? desc.slice(0, 150).trimEnd() + '…' : desc;
       box.append(el('p', { class: 'hl-pop-desc' }, short));
     }
 
@@ -418,7 +548,9 @@ export function discoverView(container: HTMLElement): () => void {
 
   // --- zoekacties ---
   async function runSearch({ fit }: { fit: boolean }) {
+    const seq = ++searchSeq;
     showSpinner();
+    aanbevolenEl.replaceChildren(); // oude aanbevelingen wissen tijdens het laden
     const b = map.getBounds();
     const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]
       .map((n) => n.toFixed(6)).join(',');
@@ -426,19 +558,26 @@ export function discoverView(container: HTMLElement): () => void {
     if (sport) params.set('sport', sport);
     try {
       const { routes } = await api.get<{ routes: RouteSummary[] }>(`/api/discover?${params}`);
+      if (seq !== searchSeq) return;
       drawPreviews(routes);
       renderResults(routes, { ranked: false, emptyMsg: AREA_EMPTY });
       if (fit) fitToResults(routes);
     } catch (e) {
-      renderError('Kon routes niet laden. Probeer het opnieuw.');
-      toast(e instanceof ApiError ? e.message : 'Kon routes niet laden.', 'error');
+      if (seq === searchSeq) {
+        renderError('Kon routes niet laden. Probeer het opnieuw.');
+        toast(e instanceof ApiError ? e.message : 'Kon routes niet laden.', 'error');
+      }
     } finally {
       hideSearchHere();
     }
+    // Aanbevolen bewegwijzerde routes voor hetzelfde gebied (zelfde moment als de
+    // community-zoek; NIET bij elke moveend, alleen bij expliciete zoekacties).
+    if (seq === searchSeq) void loadAanbevolen(bbox, seq);
   }
 
   async function loadTop() {
     showSpinner();
+    aanbevolenEl.replaceChildren(); // geen aanbevolen sectie in de top-tab
     const params = new URLSearchParams();
     if (sport) params.set('sport', sport);
     const qs = params.toString();
@@ -515,6 +654,7 @@ export function discoverView(container: HTMLElement): () => void {
   return () => {
     destroyed = true;
     document.removeEventListener('mousedown', onOutside);
+    clearRec();
     map.remove();
   };
 }

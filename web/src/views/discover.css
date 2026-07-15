@@ -156,3 +156,48 @@ main.page-wide.discover { display: flex; min-height: 0; }
   background: var(--accent-soft); color: var(--accent);
   font-weight: 700; font-size: .74rem; padding: .12rem .5rem; border-radius: 999px;
 }
+
+/* ---------- Aanbevolen bewegwijzerd (OpenStreetMap) ---------- */
+.discover-aanbevolen { margin-top: 1.1rem; padding-top: .9rem; border-top: 1px solid var(--line); }
+.discover-aanbevolen-head { display: flex; align-items: baseline; gap: .45rem; margin-bottom: .6rem; }
+.discover-aanbevolen-head h3 { margin: 0; font-size: .95rem; }
+.discover-aanbevolen-src { color: var(--muted); font-size: .75rem; }
+
+.rec-card {
+  display: flex; align-items: center; gap: .6rem; width: 100%;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-s);
+  padding: .5rem .7rem; margin-bottom: .45rem; cursor: pointer; text-align: left;
+  font: inherit; color: inherit; transition: box-shadow .15s, border-color .15s;
+}
+.rec-card:hover { border-color: var(--green); box-shadow: var(--shadow); }
+.rec-sport {
+  flex: none; width: 26px; height: 26px; border-radius: 999px;
+  background: var(--surface-2); color: var(--ink-soft); display: grid; place-items: center;
+}
+.rec-sport svg { width: 15px; height: 15px; }
+.rec-body { flex: 1; min-width: 0; }
+.rec-name { font-weight: 600; font-size: .88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-dist { color: var(--muted); font-size: .78rem; }
+.rec-title { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+.rec-spin {
+  flex: none; width: 15px; height: 15px; border-radius: 999px;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  animation: spin .7s linear infinite;
+}
+
+/* zwevend paneel op de kaart na het laden van een aanbevolen route */
+.rec-panel {
+  position: absolute; left: 50%; bottom: 4.2rem; transform: translateX(-50%);
+  z-index: 700; background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--shadow-pop); padding: .9rem 1.1rem; max-width: min(360px, calc(100% - 2rem));
+}
+.rec-panel-close { position: absolute; top: .45rem; right: .45rem; border: none; background: none; cursor: pointer; color: var(--muted); padding: .2rem; }
+.rec-panel-close svg { width: 16px; height: 16px; }
+.rec-panel-name { display: flex; align-items: center; gap: .45rem; font-weight: 700; padding-right: 1.4rem; }
+.rec-panel-name svg { width: 17px; height: 17px; flex: none; color: var(--ink-soft); }
+.rec-panel-dist { color: var(--muted); font-size: .85rem; margin: .15rem 0 .7rem; }
+.rec-panel-actions { display: flex; gap: .5rem; }
+
+@media (max-width: 860px) {
+  .rec-panel { bottom: 1rem; }
+}

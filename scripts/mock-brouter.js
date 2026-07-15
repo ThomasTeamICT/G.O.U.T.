@@ -52,7 +52,7 @@ const GEMEENTEN = { elements: [
 
 // Vier nep-wandelkandidaten (verschillende afstanden tot de kernen, één zonder naam).
 const WANDEL = { elements: [
-  { type: 'relation', id: 1001, tags: { name: 'Kravaalbos-lus', network: 'lwn', route: 'hiking', distance: '12', roundtrip: 'yes' }, center: { lat: 50.93, lon: 4.18 } },
+  { type: 'relation', id: 902, tags: { name: 'Kravaalbos-lus', network: 'lwn', route: 'hiking', distance: '12', roundtrip: 'yes' }, center: { lat: 50.93, lon: 4.18 } },
   { type: 'relation', id: 1002, tags: { name: 'Dendervallei-voetpad', network: 'rwn', route: 'foot', distance: '20' }, center: { lat: 50.94, lon: 4.05 } },
   { type: 'relation', id: 1003, tags: { name: 'Affligem-wandeling', route: 'hiking', distance: '8' }, center: { lat: 50.90, lon: 4.11 } },
   { type: 'relation', id: 1004, tags: { network: 'lwn', route: 'hiking', distance: '60' }, center: { lat: 50.94, lon: 4.19 } },
@@ -66,6 +66,10 @@ const MTB = { elements: [
 
 function overpassAntwoord(q) {
   if (/way\(r/.test(q)) return overpassGeometrie(q);          // geometrie-ophaling
+  // Aanbevolen (Ontdek) vraagt beide takken in één 'out tags center'-query op
+  // (zowel hiking/foot als mtb) -> geef de union van beide sets terug.
+  if (/out\s+tags\s+center/.test(q) && /(hiking|foot)/.test(q) && /"mtb"|route[\s\S]*mtb/.test(q))
+    return { elements: [...WANDEL.elements, ...MTB.elements] };
   if (/route[\s\S]*mtb/.test(q)) return MTB;                  // mtb-kandidaten
   if (/route[\s\S]*(hiking|foot)/.test(q)) return WANDEL;     // wandelkandidaten
   if (/admin_level[\s\S]*8/.test(q)) return GEMEENTEN;        // gemeenten

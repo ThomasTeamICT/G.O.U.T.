@@ -546,3 +546,60 @@ test('bibliotheek-oogst: 3 wandel + 3 mtb per gemeente, curated, idempotent, dro
     try { rmSync(tmpDroog, { recursive: true, force: true }); } catch { /* ok */ }
   }
 });
+
+test('ontdek: aanbevolen bewegwijzerd (OSM) — sortering, ≤3 per sport, filter, bbox, auth', async () => {
+  const c = client();
+  await c.req('POST', '/api/auth/register', { email: 'aanb@test.be', name: 'Aanb', password: 'wachtwoord1' });
+
+  // zonder login -> 401
+  const anon = client();
+  let r = await anon.req('GET', '/api/discover/aanbevolen?bbox=4.0,50.8,4.4,51.0');
+  assert.equal(r.status, 401, 'auth verplicht');
+
+  // zonder bbox -> 400
+  r = await c.req('GET', '/api/discover/aanbevolen');
+  assert.equal(r.status, 400, 'bbox verplicht');
+
+  // beide sporten (geen sportfilter) -> union van wandel + mtb
+  r = await c.req('GET', '/api/discover/aanbevolen?bbox=4.0,50.8,4.4,51.0');
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.ok(r.data.aanbevolen, 'aanbevolen-veld aanwezig');
+  const w = r.data.aanbevolen.wandelen;
+  const m = r.data.aanbevolen.mtb;
+  assert.ok(Array.isArray(w) && Array.isArray(m), 'twee lijsten');
+  assert.ok(w.length <= 3, `hoogstens 3 wandel (kreeg ${w.length})`);
+  assert.ok(m.length <= 3, `hoogstens 3 mtb (kreeg ${m.length})`);
+  assert.ok(w.length >= 1, 'minstens één wandelaanbeveling uit de mock');
+
+  // itemvorm: {id, name, ref, distanceKm, sport}
+  const it = w[0];
+  for (const k of ['id', 'name', 'ref', 'distanceKm', 'sport']) assert.ok(k in it, `veld ${k} aanwezig`);
+  assert.equal(it.sport, 'wandelen');
+
+  // afstand-tag buiten bereik (nameloze relatie, 60 km) is weggefilterd
+  assert.ok(!w.some((x) => x.distanceKm != null && x.distanceKm > 35), 'te lange wandelroute weggefilterd');
+  assert.ok(!w.some((x) => x.id === 1004), 'nameloze/te-lange relatie niet aanbevolen');
+
+  // sortering: score desc, dan afstand desc. Mock-wandel na filter:
+  // 1002 (naam+rwn+afst20 = score 4), 902 (naam+lwn+afst12 = score 4), 1003 (naam+afst8 = score 3)
+  assert.deepEqual(w.map((x) => x.id), [1002, 902, 1003], 'wandel gesorteerd op score dan afstand');
+  assert.deepEqual(m.map((x) => x.id), [2002, 2001], 'mtb gesorteerd (rwn+afst30 vóór afst25)');
+
+  // sportfilter mtb -> enkel de mtb-tak
+  r = await c.req('GET', '/api/discover/aanbevolen?bbox=4.0,50.8,4.4,51.0&sport=mtb');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.aanbevolen.wandelen.length, 0, 'sport=mtb geeft geen wandelroutes');
+  assert.ok(r.data.aanbevolen.mtb.length >= 1, 'mtb-aanbevelingen aanwezig');
+
+  // sportfilter wandelen -> enkel de wandel-tak
+  r = await c.req('GET', '/api/discover/aanbevolen?bbox=4.0,50.8,4.4,51.0&sport=wandelen');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.aanbevolen.mtb.length, 0, 'sport=wandelen geeft geen mtb-routes');
+  assert.ok(r.data.aanbevolen.wandelen.length >= 1);
+
+  // fietsen kent geen bewegwijzerde tak -> beide leeg
+  r = await c.req('GET', '/api/discover/aanbevolen?bbox=4.0,50.8,4.4,51.0&sport=fietsen');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.aanbevolen.wandelen.length, 0);
+  assert.equal(r.data.aanbevolen.mtb.length, 0);
+});
