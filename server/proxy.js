@@ -176,40 +176,62 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
     const base = WMT_BASE.replace('{site}', site);
     const infoP = wmtFetch(`${base}/api/v1/details/relation/${id}`).catch(() => null);
 
-    // Cache: grote GR's niet telkens opnieuw ophalen (en de gratis server sparen).
+    // Cache in geheugen ÉN op schijf: één keer gelukt = daarna altijd instant,
+    // ook na een serverherstart. Spaart bovendien de gratis OSM-servers.
     const cacheKey = `geom:${id}`;
-    const hit = wmtCache.get(cacheKey);
+    const { mkdirSync, readFileSync: rf, writeFileSync: wf, existsSync: ex } = await import('node:fs');
+    const { join: pj } = await import('node:path');
+    const cacheDir = pj(process.env.GOUT_DATA_DIR || pj(PROFILES_DIR, '..', '..', 'data'), 'cache');
+    const cacheFile = pj(cacheDir, `knownroute-${id}.json`);
     let data;
-    if (hit && Date.now() - hit.t < 6 * 3600_000) {
+    const hit = wmtCache.get(cacheKey);
+    if (hit && Date.now() - hit.t < 24 * 3600_000) {
       data = hit.data;
-    } else {
-      // Zonder losse knooppunten (die zitten al in de weg-geometrie): veel
-      // kleinere download, belangrijk bij camino's van 800+ km.
-      const query = `[out:json][timeout:150];rel(${id})->.r;.r >> -> .alles;(.r; rel.alles; way.alles;);out geom;`;
-      const instanties = [
-        process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter',
-        'https://overpass.kumi.systems/api/interpreter',
-      ];
-      let saw429 = false;
-      for (const instantie of instanties) {
-        try {
-          const r = await fetch(instantie, {
-            method: 'POST',
-            headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'data=' + encodeURIComponent(query),
-            signal: AbortSignal.timeout(155000),
-          });
-          if (r.status === 429) saw429 = true;
-          if (!r.ok) continue;
-          data = await r.json();
-          wmtCache.set(cacheKey, { t: Date.now(), data });
-          break;
-        } catch { /* volgende instantie */ }
+    } else if (ex(cacheFile)) {
+      try { data = JSON.parse(rf(cacheFile, 'utf8')); wmtCache.set(cacheKey, { t: Date.now(), data }); } catch { /* herophalen */ }
+    }
+    if (!data) {
+      // Zelfde zware verzoek niet dubbel laten lopen ('Probeer opnieuw'-klikken).
+      globalThis.__goutInflight ??= new Map();
+      const inflight = globalThis.__goutInflight;
+      if (!inflight.has(cacheKey)) {
+        inflight.set(cacheKey, (async () => {
+          // Gerichte ophaling: relatie + max. 3 niveaus deelrelaties + hun wegen.
+          // Veel lichter dan blinde diepe recursie en zonder losse knooppunten.
+          const query = `[out:json][timeout:90];rel(${id})->.r0;rel(r.r0)->.r1;rel(r.r1)->.r2;(.r0; .r1; .r2;)->.rels;way(r.rels)->.wegen;(.rels; .wegen;);out geom;`;
+          const instanties = [
+            process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter',
+            'https://overpass.kumi.systems/api/interpreter',
+            'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+          ];
+          let saw429 = false;
+          for (const instantie of instanties) {
+            try {
+              const r = await fetch(instantie, {
+                method: 'POST',
+                headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'data=' + encodeURIComponent(query),
+                signal: AbortSignal.timeout(100000),
+              });
+              if (r.status === 429) saw429 = true;
+              if (!r.ok) continue;
+              const d = await r.json();
+              if (!d || !Array.isArray(d.elements) || !d.elements.length) continue;
+              return { data: d };
+            } catch { /* volgende instantie */ }
+          }
+          return { saw429 };
+        })().finally(() => setTimeout(() => inflight.delete(cacheKey), 1000)));
       }
-      if (!data) {
-        if (saw429)
+      const uitkomst = await inflight.get(cacheKey);
+      if (uitkomst.data) {
+        data = uitkomst.data;
+        wmtCache.set(cacheKey, { t: Date.now(), data });
+        try { mkdirSync(cacheDir, { recursive: true }); wf(cacheFile, JSON.stringify(data)); } catch { /* cache is best effort */ }
+      } else {
+        if (uitkomst.saw429)
           return res.status(429).json({ error: 'De OpenStreetMap-server vraagt even rust (te veel verzoeken kort na elkaar). Wacht een halve minuut en probeer opnieuw.' });
-        return res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Lange routes kunnen druk bezet zijn — probeer het zo opnieuw.' });
+        return res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Lange routes kunnen druk bezet zijn — probeer het zo opnieuw, of kies een deeltraject (etappe) uit de lijst.' });
       }
     }
 
