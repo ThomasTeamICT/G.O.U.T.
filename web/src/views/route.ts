@@ -132,6 +132,7 @@ export function routeView(container: HTMLElement, params: Record<string, string>
   let elev: { destroy(): void } | null = null;
   let stopLive: (() => void) | null = null;
   let stopMarkingRef: (() => void) | null = null;
+  let onResizeRef: (() => void) | null = null;
 
   const root = el('div', {});
   container.append(root);
@@ -167,7 +168,9 @@ export function routeView(container: HTMLElement, params: Record<string, string>
     const backBtn = el('button', { class: 'btn btn-icon back-fab', title: 'Terug', onclick: () => {
       if (history.length > 1) history.back(); else navigate('/routes');
     } }, svgEl(icons.chevronL));
-    const mapSection = el('div', { class: 'map-sized detail-map' }, mapHolder, backBtn);
+    const moreBtn = el('button', { class: 'btn btn-icon more-fab', title: 'Meer info', 'aria-label': 'Meer info',
+      onclick: () => page.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, svgEl(icons.chevronD));
+    const mapSection = el('div', { class: 'map-sized detail-map' }, mapHolder, backBtn, moreBtn);
     root.append(mapSection);
 
     map = createMap(mapHolder, {});
@@ -179,9 +182,12 @@ export function routeView(container: HTMLElement, params: Record<string, string>
     fitToTrack(map, route.track);
     const hover = hoverMarker(map);
     setTimeout(() => { map?.invalidateSize(); if (map) fitToTrack(map, route.track); }, 60);
+    const onDetailResize = () => map?.invalidateSize();
+    window.addEventListener('resize', onDetailResize);
+    onResizeRef = () => window.removeEventListener('resize', onDetailResize);
 
     /* --- inhoud --- */
-    const page = el('main', { class: 'page' });
+    const page = el('main', { class: 'page detail-page' });
     root.append(page);
 
     const badgesRow = el('div', { class: 'detail-badges' });
@@ -288,11 +294,22 @@ export function routeView(container: HTMLElement, params: Record<string, string>
       svgEl(icons.flag), 'Highlight markeren');
     if (isOwner || route.visibility === 'public') actions.append(markBtn);
 
+    // Vaste categorieën voor punt-highlights (POI's) — NL-labels.
+    const HL_CATEGORIES: { key: string; label: string }[] = [
+      { key: 'uitzicht', label: 'Uitzicht' },
+      { key: 'rustpunt', label: 'Rustpunt' },
+      { key: 'horeca', label: 'Café/horeca' },
+      { key: 'bezienswaardig', label: 'Bezienswaardig' },
+      { key: 'trail', label: 'Toffe trail' },
+    ];
+
     let marking = false;
+    let markMode: 'point' | 'segment' | null = null; // gekozen sub-modus (null = nog kiezen)
     let markLayer: L.LayerGroup | null = null;
     let hitLine: L.Polyline | null = null;
     let firstIdx: number | null = null;
     let firstDot: L.CircleMarker | null = null;
+    let pointDot: L.CircleMarker | null = null;
     let previewLine: L.Polyline | null = null;
     let banner: HTMLElement | null = null;
     let modalOpen = false;
@@ -304,14 +321,28 @@ export function routeView(container: HTMLElement, params: Record<string, string>
       previewLine = L.polyline(trackToLatLngs(seg), { color: '#e8590c', weight: 6, opacity: 0.8 }).addTo(markLayer);
     }
 
+    function drawPointDot(index: number) {
+      if (!markLayer) return;
+      const p = route.track[index];
+      if (pointDot) { pointDot.remove(); pointDot = null; }
+      pointDot = L.circleMarker([p[1], p[0]], { radius: 7, color: '#fff', weight: 2, fillColor: '#e8590c', fillOpacity: 1 }).addTo(markLayer);
+    }
+
     function resetSelection() {
       firstIdx = null;
       if (firstDot) { firstDot.remove(); firstDot = null; }
       if (previewLine) { previewLine.remove(); previewLine = null; }
+      if (pointDot) { pointDot.remove(); pointDot = null; }
     }
 
     function onMarkClick(e: L.LeafletMouseEvent) {
+      if (markMode === null || modalOpen) return; // eerst een sub-modus kiezen
       const { index } = nearestPointIndex(route.track, e.latlng.lng, e.latlng.lat);
+      if (markMode === 'point') {
+        drawPointDot(index);
+        openHighlightModal('point', index, index);
+        return;
+      }
       if (firstIdx === null) {
         firstIdx = index;
         const p = route.track[index];
@@ -324,11 +355,11 @@ export function routeView(container: HTMLElement, params: Record<string, string>
       const hi = Math.max(firstIdx, index);
       if (hi - lo < 1) { toast('Kies twee verschillende punten op de route.', 'error'); return; }
       drawPreview(lo, hi);
-      openHighlightModal(lo, hi);
+      openHighlightModal('segment', lo, hi);
     }
 
     function onMarkMove(e: L.LeafletMouseEvent) {
-      if (firstIdx === null || modalOpen) return;
+      if (markMode !== 'segment' || firstIdx === null || modalOpen) return;
       const { index } = nearestPointIndex(route.track, e.latlng.lng, e.latlng.lat);
       drawPreview(Math.min(firstIdx, index), Math.max(firstIdx, index));
     }
@@ -337,24 +368,36 @@ export function routeView(container: HTMLElement, params: Record<string, string>
       if (!modalOpen && e.key === 'Escape') stopMarking();
     }
 
-    function openHighlightModal(lo: number, hi: number) {
+    function openHighlightModal(mode: 'point' | 'segment', lo: number, hi: number) {
       const segment = route.track.slice(lo, hi + 1);
       modalOpen = true;
       let saved = false;
       const box = el('div', {});
-      const nameInput = el('input', { class: 'input', type: 'text', maxlength: '80', placeholder: 'bv. Uitzicht over de vallei' });
+      const nameInput = el('input', { class: 'input', type: 'text', maxlength: '80',
+        placeholder: mode === 'point' ? 'bv. Mooi bankje' : 'bv. Uitzicht over de vallei' });
+
+      // Categorie: verplicht bij een plek, optioneel bij een stuk route.
+      const catSel = el('select', { class: 'input' });
+      catSel.append(el('option', { value: '' }, mode === 'point' ? 'Kies een categorie…' : 'Geen categorie'));
+      for (const c of HL_CATEGORIES) catSel.append(el('option', { value: c.key }, c.label));
+
       const sportSel = el('select', { class: 'input' });
       for (const s of SPORTS) sportSel.append(el('option', { value: s.key }, s.label));
       sportSel.append(el('option', { value: 'alle' }, 'Alle sporten'));
       sportSel.value = route.sport;
-      const descArea = el('textarea', { class: 'input', rows: '3', maxlength: '500', placeholder: 'Wat maakt dit stuk zo mooi? (optioneel)' });
+      const descArea = el('textarea', { class: 'input', rows: '3', maxlength: '500',
+        placeholder: mode === 'point' ? 'Wat maakt deze plek bijzonder? (optioneel)' : 'Wat maakt dit stuk zo mooi? (optioneel)' });
 
       const save = async () => {
         const name = nameInput.value.trim();
         if (!name) { toast('Geef je highlight een naam.', 'error'); nameInput.focus(); return; }
         if (name.length > 80) { toast('De naam mag hoogstens 80 tekens lang zijn.', 'error'); return; }
+        const category = catSel.value || null;
+        if (mode === 'point' && !category) { toast('Kies een categorie voor deze plek.', 'error'); catSel.focus(); return; }
         try {
-          await api.post('/api/highlights', { name, description: descArea.value.trim(), sport: sportSel.value, track: segment });
+          await api.post('/api/highlights', {
+            name, description: descArea.value.trim(), sport: sportSel.value, category, track: segment,
+          });
           saved = true;
           toast('Highlight bewaard!');
           close();
@@ -370,9 +413,12 @@ export function routeView(container: HTMLElement, params: Record<string, string>
       } });
 
       box.append(
-        el('h2', {}, 'Highlight markeren'),
-        el('p', { class: 'share-p' }, 'Geef het mooiste stuk een naam zodat anderen het ontdekken.'),
+        el('h2', {}, mode === 'point' ? 'Plek markeren' : 'Stuk route markeren'),
+        el('p', { class: 'share-p' }, mode === 'point'
+          ? 'Geef deze plek een naam en categorie zodat anderen ze ontdekken.'
+          : 'Geef het mooiste stuk een naam zodat anderen het ontdekken.'),
         el('label', { class: 'field' }, el('span', {}, 'Naam'), nameInput),
+        el('label', { class: 'field' }, el('span', {}, mode === 'point' ? 'Categorie' : 'Categorie (optioneel)'), catSel),
         el('label', { class: 'field' }, el('span', {}, 'Sport'), sportSel),
         el('label', { class: 'field' }, el('span', {}, 'Beschrijving (optioneel)'), descArea),
         el('div', { class: 'modal-actions' },
@@ -381,6 +427,39 @@ export function routeView(container: HTMLElement, params: Record<string, string>
         ),
       );
       nameInput.focus();
+    }
+
+    function setBanner(node: HTMLElement) {
+      if (banner) { banner.remove(); banner = null; }
+      banner = node;
+      root.insertBefore(banner, mapSection);
+    }
+
+    function showChoiceBanner() {
+      markMode = null;
+      resetSelection();
+      setBanner(el('div', { class: 'hl-banner' },
+        el('span', { class: 'hl-banner-q' }, 'Wat wil je markeren?'),
+        el('div', { class: 'hl-banner-choice' },
+          el('button', { class: 'btn btn-sm', onclick: () => chooseMode('point') }, svgEl(icons.flag), 'Plek (één klik)'),
+          el('button', { class: 'btn btn-sm', onclick: () => chooseMode('segment') }, svgEl(icons.route), 'Stuk route (twee klikken)'),
+        ),
+        el('button', { class: 'btn btn-sm btn-ghost', onclick: () => stopMarking() }, svgEl(icons.close), 'Annuleren'),
+      ));
+    }
+
+    function chooseMode(mode: 'point' | 'segment') {
+      markMode = mode;
+      resetSelection();
+      setBanner(el('div', { class: 'hl-banner' },
+        el('span', {}, mode === 'point'
+          ? 'Klik op de route waar de plek ligt'
+          : 'Klik twee punten op de route om het mooiste stuk te markeren'),
+        el('div', { class: 'hl-banner-choice' },
+          el('button', { class: 'btn btn-sm btn-ghost', onclick: () => showChoiceBanner() }, svgEl(icons.chevronL), 'Terug'),
+          el('button', { class: 'btn btn-sm', onclick: () => stopMarking() }, svgEl(icons.close), 'Annuleren'),
+        ),
+      ));
     }
 
     function startMarking() {
@@ -394,23 +473,21 @@ export function routeView(container: HTMLElement, params: Record<string, string>
       map.on('mousemove', onMarkMove);
       document.addEventListener('keydown', onMarkKey);
       mapHolder.style.cursor = 'crosshair';
-      banner = el('div', { class: 'hl-banner' },
-        el('span', {}, 'Klik twee punten op de route om het mooiste stuk te markeren'),
-        el('button', { class: 'btn btn-sm', onclick: () => stopMarking() }, svgEl(icons.close), 'Annuleren'),
-      );
-      root.insertBefore(banner, mapSection);
+      showChoiceBanner();
     }
 
     function stopMarking() {
       markBtn.disabled = false;
       if (!marking) return;
       marking = false;
+      markMode = null;
       modalOpen = false;
       if (map) { map.off('click', onMarkClick); map.off('mousemove', onMarkMove); }
       document.removeEventListener('keydown', onMarkKey);
       mapHolder.style.cursor = '';
       previewLine = null;
       firstDot = null;
+      pointDot = null;
       hitLine = null;
       firstIdx = null;
       if (markLayer) { markLayer.remove(); markLayer = null; }
@@ -421,6 +498,7 @@ export function routeView(container: HTMLElement, params: Record<string, string>
 
   return () => {
     stopMarkingRef?.();
+    onResizeRef?.();
     stopLive?.();
     elev?.destroy();
     if (map) { map.remove(); map = null; }
