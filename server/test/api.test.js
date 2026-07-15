@@ -275,6 +275,9 @@ test('bekende routes: zoeken en geometrie aaneenrijgen', async () => {
   const lons = r.data.track.map((p) => p[0]);
   const sorted = [...lons].sort((a, b) => b - a);
   assert.deepEqual(lons, sorted, 'kettingvolgorde klopt (aflopende lon)');
+  assert.ok(!lons.some((x) => x > 5), 'losse zijtak (lon 6.x) weggelaten — geen luchtlijnen');
+  assert.ok(!r.data.track.some((p) => p[0] === 4.21), 'alternative-variant weggefilterd');
+  assert.match(r.data.note, /variant/, 'note vermeldt weggelaten varianten');
 
   r = await c.req('GET', '/api/knownroutes/abc?sport=wandelen');
   assert.equal(r.status, 400);

@@ -23,7 +23,7 @@
 
 /* ---------- detailpagina ---------- */
 /* Detailkaart vult (bijna) het hele eerste scherm; de info verschijnt na scrollen. */
-.detail-map { height: calc(100vh - 57px); min-height: 340px; background: #e9e4d8; }
+.detail-map.route-detail-map { height: calc(100vh - 57px); min-height: 340px; background: #e9e4d8; }
 .detail-page { scroll-margin-top: 64px; }
 /* Subtiele 'Meer info'-knop onderaan-midden op de kaart, wipt zacht om tot scrollen uit te nodigen. */
 .more-fab {
@@ -38,6 +38,8 @@
   50% { transform: translateX(-50%) translateY(4px); }
 }
 @media (prefers-reduced-motion: reduce) { .more-fab { animation: none; } }
+/* De zwevende kaartknoppen niet door de fullscreen live-overlay laten prikken. */
+body.live-open .more-fab, body.live-open .back-fab { display: none; }
 .back-fab {
   position: absolute; top: 12px; left: 12px; z-index: 1000;
   box-shadow: var(--shadow);
@@ -143,7 +145,7 @@ body.live-open .toasts { bottom: 15rem; }
 .shared-cta .btn { justify-content: center; }
 
 @media (max-width: 760px) {
-  .detail-map { height: 85vh; min-height: 260px; }
+  .detail-map.route-detail-map { height: 85vh; min-height: 260px; }
   .shared-map { height: 40vh; }
   .page-head .head-actions .btn span.lbl { display: none; }
 }

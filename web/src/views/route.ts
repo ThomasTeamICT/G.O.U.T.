@@ -170,7 +170,7 @@ export function routeView(container: HTMLElement, params: Record<string, string>
     } }, svgEl(icons.chevronL));
     const moreBtn = el('button', { class: 'btn btn-icon more-fab', title: 'Meer info', 'aria-label': 'Meer info',
       onclick: () => page.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, svgEl(icons.chevronD));
-    const mapSection = el('div', { class: 'map-sized detail-map' }, mapHolder, backBtn, moreBtn);
+    const mapSection = el('div', { class: 'map-sized detail-map route-detail-map' }, mapHolder, backBtn, moreBtn);
     root.append(mapSection);
 
     map = createMap(mapHolder, {});

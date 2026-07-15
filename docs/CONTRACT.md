@@ -236,3 +236,26 @@ Type: `Highlight` in web/src/types.ts. Sport kan ook `'alle'` zijn.
   info verschijnt na scrollen; subtiele chevron-knop op de kaart scrolt er naartoe.
 - Seed voorziet enkele openbare voorbeeld-highlights zodat nieuwe installaties de
   functie meteen zien werken.
+
+## Bekende route → deel kiezen → dagetappes (camino-workflow)
+
+In de planner, wanneer een bekende route geladen is ('geladen route'-modus in plan.ts):
+
+1. **Deel kiezen**: knop 'Kies je deel' → stap 1: klik (of zoek een plaats) voor punt A op de
+   geladen lijn (nearestPointIndex, marker A), stap 2: idem voor punt B. Het tussenliggende
+   stuk (sub-track; als idxA > idxB de sub-track omkeren zodat A vooraan ligt) wordt de
+   actieve route; de rest van de lijn wordt gedimd getekend (opacity .25). Knop 'Opnieuw
+   kiezen' om A/B te herzetten. Statsbalk toont de afstand van het gekozen deel.
+2. **Dagetappes**: daarna verschijnt een etappepaneel:
+   - Automatisch: invoerveld 'km per dag' (default 25) OF 'aantal dagen' + knop 'Verdeel
+     automatisch' → splitpunten op gelijke afstand langs de cumulatieve afstand
+     (pointAtDistance), gesnapt naar het dichtstbijzijnde trackpunt.
+   - Handmatig bijslijpen: klik op de lijn = splitpunt toevoegen; klik op een splitmarker =
+     verwijderen. Splitmarkers = genummerde via-stijl markers.
+   - Paneel toont de etappelijst: 'Dag 1 — 24,3 km', 'Dag 2 — 26,1 km', ... live bijgewerkt.
+3. **Bewaren**: knop 'Bewaar N dagetappes' → confirmDialog met samenvatting → per etappe
+   POST /api/routes {name: '{routenaam} — dag {i}', sport, waypoints: null, track: slice,
+   region (van dag 1, best effort)} → daarna navigate('/routes') + toast 'N dagetappes
+   bewaard.'. Optie-checkbox 'Ook de volledige route bewaren' (default uit).
+   GPX-download per dag gebeurt daarna gewoon vanuit Mijn routes.
+- Alles moet ook goed werken op mobiel (etappepaneel als scrollbare kaart onderaan).

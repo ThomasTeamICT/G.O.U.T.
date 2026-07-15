@@ -186,38 +186,72 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
     if (!r.ok) throw new Error(`Overpass ${r.status}`);
     const data = await r.json();
 
+    // Wegen verzamelen. Bij voorkeur via de relatie-leden zodat we varianten,
+    // zijtakken en aanlooproutes (rol 'alternative', 'excursion', ...) kunnen
+    // overslaan — anders knoopt de aaneenrijger die met luchtlijnen vast.
+    const EXCLUDE_ROLES = new Set(['alternative', 'excursion', 'approach', 'connection', 'shortcut', 'variant', 'detour', 'link']);
     const seen = new Set();
     const segments = [];
+    const addWay = (ref, geometry) => {
+      if (!Array.isArray(geometry) || geometry.length < 2) return;
+      if (ref != null && seen.has(ref)) return;
+      if (ref != null) seen.add(ref);
+      segments.push(geometry.map((p) => [p.lon, p.lat]));
+    };
+    let viaRelaties = false;
     for (const el of data.elements || []) {
-      if (el.type !== 'way' || !Array.isArray(el.geometry) || el.geometry.length < 2) continue;
-      if (seen.has(el.id)) continue;
-      seen.add(el.id);
-      segments.push(el.geometry.map((p) => [p.lon, p.lat]));
+      if (el.type !== 'relation' || !Array.isArray(el.members)) continue;
+      for (const m of el.members) {
+        if (m.type !== 'way' || !m.geometry) continue;
+        if (EXCLUDE_ROLES.has(String(m.role || '').toLowerCase())) continue;
+        addWay(m.ref, m.geometry);
+        viaRelaties = true;
+      }
+    }
+    if (!viaRelaties) {
+      for (const el of data.elements || []) {
+        if (el.type === 'way') addWay(el.id, el.geometry);
+      }
     }
     if (!segments.length) return res.status(404).json({ error: 'Geen geometrie gevonden voor deze route.' });
 
-    // Segmenten aaneenrijgen op dichtstbijzijnde eindpunten (OSM-volgorde is grillig).
-    const dist2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
-    const chain = segments.splice(0, 1)[0].slice();
-    while (segments.length) {
-      let best = -1, bestD = Infinity, flip = false, append = true;
-      const head = chain[0], tail = chain[chain.length - 1];
-      for (let i = 0; i < segments.length; i++) {
-        const s = segments[i];
-        const opts = [
-          [dist2(tail, s[0]), true, false], [dist2(tail, s[s.length - 1]), true, true],
-          [dist2(head, s[s.length - 1]), false, false], [dist2(head, s[0]), false, true],
-        ];
-        for (const [d, app, fl] of opts) {
-          if (d < bestD) { bestD = d; best = i; append = app; flip = fl; }
+    // Aaneenrijgen tot doorlopende kettingen: alleen verbinden als de einden
+    // écht aansluiten (< 300 m). Losse onderdelen worden aparte kettingen;
+    // we geven het langste doorlopende tracé terug (geen luchtlijnen meer).
+    const { simplify, haversine, trackDistance } = await import('./geo.js');
+    const GAP_M = 300;
+    const dm = (a, b) => haversine(a[0], a[1], b[0], b[1]);
+    const kettingen = [];
+    const pool = segments;
+    while (pool.length) {
+      const chain = pool.shift().slice();
+      let gegroeid = true;
+      while (gegroeid && pool.length) {
+        gegroeid = false;
+        const head = chain[0], tail = chain[chain.length - 1];
+        let best = -1, bestD = Infinity, flip = false, append = true;
+        for (let i = 0; i < pool.length; i++) {
+          const s = pool[i];
+          const opts = [
+            [dm(tail, s[0]), true, false], [dm(tail, s[s.length - 1]), true, true],
+            [dm(head, s[s.length - 1]), false, false], [dm(head, s[0]), false, true],
+          ];
+          for (const [d, app, fl] of opts) {
+            if (d < bestD) { bestD = d; best = i; append = app; flip = fl; }
+          }
+        }
+        if (best >= 0 && bestD <= GAP_M) {
+          const seg = pool.splice(best, 1)[0].slice();
+          if (flip) seg.reverse();
+          if (append) chain.push(...seg); else chain.unshift(...seg.reverse());
+          gegroeid = true;
         }
       }
-      const seg = segments.splice(best, 1)[0].slice();
-      if (flip) seg.reverse();
-      if (append) chain.push(...seg); else chain.unshift(...seg.reverse());
+      kettingen.push(chain);
     }
-    let track = chain;
-    const { simplify } = await import('./geo.js');
+    kettingen.sort((x, y) => trackDistance(y) - trackDistance(x));
+    let track = kettingen[0];
+    const weggelaten = kettingen.length - 1;
     let tol = 0.00005;
     while (track.length > 6000 && tol < 0.01) { track = simplify(track, tol); tol *= 2; }
     const info = await infoP;
@@ -225,7 +259,9 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
       name: info?.name || `Route ${id}`,
       ref: info?.ref || null,
       track,
-      note: 'Geometrie uit OpenStreetMap (Overpass); hoogtedata niet inbegrepen.',
+      note: weggelaten > 0
+        ? `Hoofdtracé gekozen; ${weggelaten} losse variant(en)/zijtak(ken) weggelaten. Hoogtedata niet inbegrepen.`
+        : 'Geometrie uit OpenStreetMap (Overpass); hoogtedata niet inbegrepen.',
     });
   } catch {
     res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Probeer opnieuw.' });

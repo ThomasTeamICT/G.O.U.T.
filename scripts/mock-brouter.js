@@ -38,10 +38,16 @@ http.createServer((req, res) => {
     req.on('end', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ elements: [
-        { type: 'way', id: 1, geometry: [
-          { lat: 50.90, lon: 4.30 }, { lat: 50.92, lon: 4.25 }, { lat: 50.93, lon: 4.20 }] },
-        { type: 'way', id: 2, geometry: [
-          { lat: 50.93, lon: 4.20 }, { lat: 50.95, lon: 4.15 }, { lat: 50.96, lon: 4.10 }] },
+        { type: 'relation', id: 902, members: [
+          { type: 'way', ref: 1, role: '', geometry: [
+            { lat: 50.90, lon: 4.30 }, { lat: 50.92, lon: 4.25 }, { lat: 50.93, lon: 4.20 }] },
+          { type: 'way', ref: 2, role: '', geometry: [
+            { lat: 50.93, lon: 4.20 }, { lat: 50.95, lon: 4.15 }, { lat: 50.96, lon: 4.10 }] },
+          { type: 'way', ref: 3, role: 'alternative', geometry: [
+            { lat: 50.93, lon: 4.21 }, { lat: 50.97, lon: 4.18 }] },
+          { type: 'way', ref: 4, role: '', geometry: [
+            { lat: 51.50, lon: 6.00 }, { lat: 51.51, lon: 6.01 }] },
+        ] },
       ] }));
     });
     return;
