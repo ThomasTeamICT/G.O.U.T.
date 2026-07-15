@@ -176,3 +176,30 @@ Type: `Highlight` in web/src/types.ts. Sport kan ook `'alle'` zijn.
   moveend alleen als de toggle aan staat (debounce 600ms).
 - Bewegwijzerde officiële routes (GR's, knooppunten) zitten al als overlay-tegellagen in de
   lagencontrole (map.ts) — highlights zijn het community-deel daarbovenop.
+
+## Planner-extensies (bekende routes, GPS-positie, lus sluiten)
+
+### Server (bestaat al — server/proxy.js)
+- `GET /api/knownroutes?q=&sport=` → `{routes:[{id, name, ref, group}]}` (Waymarked Trails-zoek).
+- `GET /api/knownroutes/:id?sport=` → `{name, ref, track:[[lon,lat],...], note}` (aaneengeregen, ≤6000 punten, GEEN hoogtedata).
+- Custom BRouter-profielen: server/profiles/<sport>.brf wordt automatisch geüpload en gebruikt.
+
+### UI (plan.ts)
+- **Bekende routes-knop** (icons.map, naast het zoekveld): opent een modal "Bekende routes"
+  met: zoekveld + snelkeuze-chips ('Camino Francés', 'Via Turonensis', 'Via Podiensis (GR65)',
+  'GR 5', 'GR 12', 'GR 128 Vlaanderen') die het zoekveld invullen en meteen zoeken (query =
+  chiptekst, sport = huidige sport). Resultatenlijst (naam + ref-badge); klik = geometrie laden
+  → toon als track in de planner (aparte modus 'geladen route': volledige lijn, A/B-markers,
+  stats zonder hoogte, hint-balk 'Geladen: {naam} — bewaar of download'), knoppen Opslaan
+  (POST /api/routes, waypoints=null) en GPX. Duidelijke laad-spinner (lange GR's = even geduld)
+  en nette foutafhandeling. Simpel voor leken: één knop, één zoekveld, klikken = klaar.
+- **GPS-positie in de planner**: toggle-knop (icons.locate) in de knoppenrij: aan = watchPosition
+  → klein blauw bolletje (positionIcon) + accuracy-cirkel op de kaart (GEEN auto-pan; eerste fix
+  mag één keer centreren), uit = watcher stoppen en marker weg. Fout → toast, knop terug uit.
+  Persistentie via localStorage ('gout.plannerGps' = '1') zodat de voorkeur bewaard blijft.
+- **Lus sluiten**: klik op de START-marker met ≥2 punten sluit de lus (voegt eindpunt toe op de
+  startcoördinaat, toast 'Lus gesloten'); start-marker verwijderen kan dan via de eerste
+  via-klik-regel niet meer per ongeluk. Plus expliciete knop 'Sluit de lus' (icons.route) in de
+  knoppenrij (disabled bij <2 punten of al gesloten).
+- **Hint-kaart**: kleiner, onderaan-gecentreerd boven de statsbalk, pointer-events none, en
+  verdwijnt automatisch (fade) na 8 s of bij het eerste punt.

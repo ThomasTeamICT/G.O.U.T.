@@ -303,6 +303,7 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
   const mapEl = el('div', { class: 'live-map' });
   overlay.append(mapEl);
   document.body.append(overlay);
+  document.body.classList.add('live-open'); // tilt toasts boven het voortgangspaneel
 
   const liveMap = createMap(mapEl, {});
   liveMap.zoomControl.setPosition('topright');
@@ -322,6 +323,8 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
   let recorded: TrackPoint[] = [];
   let startedAt: string | null = null;
   let closed = false;
+  let hasFix = false;         // ooit een geldige GPS-positie ontvangen?
+  let warnedNoAccess = false; // 'geen toegang'-toast al één keer getoond?
 
   /* --- bovenbalk --- */
   const followBtn = el('button', { class: 'btn btn-icon live-follow active', title: 'Auto-volgen' },
@@ -368,7 +371,7 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
       cell(vDone, 'Afgelegd'),
       cell(vTogo, 'Te gaan'),
       cell(vPct, 'Voltooid'),
-      cell(vAsc, 'Klim resterend'),
+      cell(vAsc, 'Klim rest.'),
       cell(vEta, 'ETA'),
     ),
     recBtn,
@@ -392,6 +395,7 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
 
   function onPos(pos: GeolocationPosition) {
     if (closed) return;
+    hasFix = true;
     const lat = pos.coords.latitude, lon = pos.coords.longitude;
     const acc = pos.coords.accuracy || 12;
     const alt = pos.coords.altitude;
@@ -416,8 +420,13 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
       else doneLine.setLatLngs(donePts);
     }
 
-    if (distM > 150) { warn.style.display = ''; warn.textContent = `Je zit ${Math.round(distM)} m naast de route.`; }
-    else warn.style.display = 'none';
+    if (distM > 150) {
+      warn.style.display = '';
+      const afst = distM >= 1000 ? fmtKm(distM) : `${Math.round(distM)} m`;
+      warn.textContent = `Je zit ${afst} naast de route.`;
+    } else {
+      warn.style.display = 'none';
+    }
 
     fill.style.width = pct + '%';
     vDone.textContent = fmtKm(done);
@@ -436,7 +445,19 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
     }
   }
 
-  function onErr() {
+  function onErr(err: GeolocationPositionError) {
+    if (closed) return;
+    if (hasFix) {
+      // Er is al een werkende positie. Een time-out is een tijdelijke hapering: negeren.
+      if (err.code === 3 /* TIMEOUT */) return;
+      // Andere fouten rustig in de kaartbanner tonen, niet als storende toast.
+      warn.style.display = '';
+      warn.textContent = 'Locatie even kwijt…';
+      return;
+    }
+    // Nog nooit een positie gehad (bv. permissie geweigerd): één duidelijke toast.
+    if (warnedNoAccess) return;
+    warnedNoAccess = true;
     toast('Geen toegang tot je locatie. Zet locatie aan en probeer opnieuw.', 'error');
   }
 
@@ -477,6 +498,7 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
     closed = true;
     if (watchId != null) navigator.geolocation.clearWatch(watchId);
     if (save && recording) finishRecording();
+    document.body.classList.remove('live-open');
     liveMap.remove();
     overlay.remove();
     onClose();

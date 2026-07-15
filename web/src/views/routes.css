@@ -15,8 +15,11 @@
 .route-card .statline span { display: inline-flex; align-items: center; gap: .2rem; }
 
 /* ---------- gedeelde kaartwrapper ---------- */
-.map-sized { position: relative; width: 100%; }
-.map-sized .map-holder { position: absolute; inset: 0; }
+.map-sized { position: relative; width: 100%; overflow: hidden; }
+/* height:auto houdt de kaart exact in haar houder: een globaal gelekte
+   .map-holder{height:45vh} (uit discover.css) maakte hem anders te hoog,
+   waardoor de absoluut-gepositioneerde kaart over de routenaam viel. */
+.map-sized .map-holder { position: absolute; inset: 0; height: auto; }
 
 /* ---------- detailpagina ---------- */
 .detail-map { height: 55vh; min-height: 340px; background: #e9e4d8; }
@@ -104,11 +107,13 @@
 .live-progress > i { display: block; height: 100%; background: var(--accent); width: 0%; transition: width .4s; }
 .live-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(74px, 1fr)); gap: .5rem; margin: .9rem 0; text-align: center; }
 .live-stats .v { font-size: 1.15rem; font-weight: 800; letter-spacing: -.02em; }
-.live-stats .k { font-size: .72rem; color: var(--muted); font-weight: 600; }
+.live-stats .k { font-size: .72rem; color: var(--muted); font-weight: 600; white-space: nowrap; }
 .live-rec { width: 100%; justify-content: center; }
 .live-rec.on { background: var(--danger); color: #fff; }
 .live-rec.on:hover { background: #97291a; }
 .live-follow.active { background: var(--green); color: #fff; border-color: var(--green); }
+/* In live-modus staan toasts boven het onderste voortgangspaneel (D2). */
+body.live-open .toasts { bottom: 15rem; }
 
 /* ---------- publieke deelpagina ---------- */
 .shared-header {

@@ -16,6 +16,39 @@ export const PROFILES = {
 // Als een (custom) profiel niet op de BRouter-server staat, val terug op:
 const FALLBACK_PROFILE = 'trekking';
 
+// Eigen .brf-profielen in server/profiles/<sport>.brf worden automatisch naar
+// de BRouter-server geüpload (zoals brouter-web doet) en krijgen voorrang.
+// Mislukt de upload of de routering ermee, dan vallen we terug op het
+// standaardprofiel. Zo kan je bos-/asfaltvoorkeur zelf tunen.
+import { readFileSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const PROFILES_DIR = join(dirname(fileURLToPath(import.meta.url)), 'profiles');
+const customProfileIds = new Map(); // sport -> profileid | null (null = upload faalde)
+
+async function customProfileFor(sport) {
+  if (customProfileIds.has(sport)) return customProfileIds.get(sport);
+  const file = join(PROFILES_DIR, `${sport}.brf`);
+  if (!existsSync(file)) { customProfileIds.set(sport, null); return null; }
+  try {
+    const r = await fetch(`${BROUTER_URL}/profile`, {
+      method: 'POST',
+      headers: { 'User-Agent': UA, 'Content-Type': 'text/plain' },
+      body: readFileSync(file, 'utf8'),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = r.ok ? await r.json().catch(() => null) : null;
+    const id = data && data.profileid && !data.error ? data.profileid : null;
+    customProfileIds.set(sport, id);
+    if (id) console.log(`BRouter-profiel geüpload voor ${sport}: ${id}`);
+    else console.warn(`BRouter-profielupload voor ${sport} geweigerd; standaardprofiel wordt gebruikt.`);
+    return id;
+  } catch {
+    customProfileIds.set(sport, null);
+    return null;
+  }
+}
+
 export const proxyRouter = Router();
 
 const LONLATS_RE = /^-?\d+(\.\d+)?,-?\d+(\.\d+)?(\|-?\d+(\.\d+)?,-?\d+(\.\d+)?)+$/;
@@ -33,8 +66,17 @@ proxyRouter.get('/routing', requireAuth, async (req, res) => {
   };
 
   try {
-    let result = await fetchRoute(profile);
-    let usedProfile = profile;
+    const custom = await customProfileFor(sport);
+    let result = null, usedProfile = null;
+    if (custom) {
+      result = await fetchRoute(custom);
+      usedProfile = custom;
+      if (!result.ok) customProfileIds.set(sport, null); // niet blijven proberen
+    }
+    if (!result || !result.ok) {
+      result = await fetchRoute(profile);
+      usedProfile = profile;
+    }
     if (!result.ok && profile !== FALLBACK_PROFILE) {
       result = await fetchRoute(FALLBACK_PROFILE);
       usedProfile = FALLBACK_PROFILE;
@@ -84,5 +126,98 @@ proxyRouter.get('/revgeocode', requireAuth, async (req, res) => {
     res.json({ region });
   } catch {
     res.json({ region: null });
+  }
+});
+
+// ---- Bekende routes (GR's, camino's) — Waymarked Trails-API ----------------
+
+const WMT_BASE = process.env.WMT_BASE || 'https://{site}.waymarkedtrails.org';
+const WMT_SITE = { wandelen: 'hiking', fietsen: 'cycling', mtb: 'mtb' };
+const wmtCache = new Map(); // url -> { t, data }
+
+async function wmtFetch(url) {
+  const hit = wmtCache.get(url);
+  if (hit && Date.now() - hit.t < 3600_000) return hit.data;
+  const r = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error(`WMT ${r.status}`);
+  const data = await r.json();
+  wmtCache.set(url, { t: Date.now(), data });
+  return data;
+}
+
+proxyRouter.get('/knownroutes', requireAuth, async (req, res) => {
+  const q = String(req.query.q || '').trim().slice(0, 80);
+  const site = WMT_SITE[req.query.sport] || 'hiking';
+  if (q.length < 2) return res.json({ routes: [] });
+  try {
+    const base = WMT_BASE.replace('{site}', site);
+    const data = await wmtFetch(`${base}/api/v1/list/search?query=${encodeURIComponent(q)}&limit=20`);
+    const items = data.results || data.items || [];
+    res.json({
+      routes: items.map((it) => ({
+        id: it.id,
+        name: it.name || it.ref || `Route ${it.id}`,
+        ref: it.ref || null,
+        group: it.group || it.network || null,
+      })).filter((it) => it.id),
+    });
+  } catch {
+    res.status(502).json({ error: 'Routebibliotheek niet bereikbaar. Probeer zo dadelijk opnieuw.' });
+  }
+});
+
+proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const site = WMT_SITE[req.query.sport] || 'hiking';
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ongeldige route.' });
+  try {
+    const base = WMT_BASE.replace('{site}', site);
+    const [info, geom] = await Promise.all([
+      wmtFetch(`${base}/api/v1/details/relation/${id}`).catch(() => null),
+      wmtFetch(`${base}/api/v1/details/relation/${id}/geometry/geojson`),
+    ]);
+    const segments = [];
+    (function collect(g) {
+      if (!g) return;
+      if (g.type === 'FeatureCollection') g.features.forEach((f) => collect(f));
+      else if (g.type === 'Feature') collect(g.geometry);
+      else if (g.type === 'GeometryCollection') g.geometries.forEach(collect);
+      else if (g.type === 'LineString') segments.push(g.coordinates);
+      else if (g.type === 'MultiLineString') segments.push(...g.coordinates);
+    })(geom);
+    if (!segments.length) return res.status(404).json({ error: 'Geen geometrie gevonden voor deze route.' });
+
+    // Segmenten aaneenrijgen op dichtstbijzijnde eindpunten (OSM-volgorde is grillig).
+    const dist2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+    const chain = segments.splice(0, 1)[0].slice();
+    while (segments.length) {
+      let best = -1, bestD = Infinity, flip = false, append = true;
+      const head = chain[0], tail = chain[chain.length - 1];
+      for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        const opts = [
+          [dist2(tail, s[0]), true, false], [dist2(tail, s[s.length - 1]), true, true],
+          [dist2(head, s[s.length - 1]), false, false], [dist2(head, s[0]), false, true],
+        ];
+        for (const [d, app, fl] of opts) {
+          if (d < bestD) { bestD = d; best = i; append = app; flip = fl; }
+        }
+      }
+      const seg = segments.splice(best, 1)[0].slice();
+      if (flip) seg.reverse();
+      if (append) chain.push(...seg); else chain.unshift(...seg.reverse());
+    }
+    let track = chain.map((p) => [p[0], p[1]]);
+    const { simplify } = await import('./geo.js');
+    let tol = 0.00005;
+    while (track.length > 6000 && tol < 0.01) { track = simplify(track, tol); tol *= 2; }
+    res.json({
+      name: info?.name || `Route ${id}`,
+      ref: info?.ref || null,
+      track,
+      note: 'Geometrie uit OpenStreetMap (Waymarked Trails); hoogtedata niet inbegrepen.',
+    });
+  } catch {
+    res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Probeer opnieuw.' });
   }
 });

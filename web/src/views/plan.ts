@@ -52,7 +52,7 @@ export function planView(
   /* ------------------------------ DOM ------------------------------ */
   const mapEl = el('div', { style: 'position:absolute;inset:0;' });
   const holder = el('div', { class: 'map-holder' }, mapEl);
-  const root = el('main', { class: 'page-wide' }, holder);
+  const root = el('main', { class: 'page-wide plan-page' }, holder);
   container.append(root);
 
   const map = createMap(mapEl);
@@ -123,7 +123,7 @@ export function planView(
   const durV = el('span', {}, '0 min');
   const upV = el('span', {}, '0 m');
   const downV = el('span', {}, '0 m');
-  const diffHolder = el('span', {});
+  const diffHolder = el('span', { class: 'plan-diff' });
   const statline = el('div', { class: 'statline' },
     distV,
     el('span', { class: 'sep' }, '·'),
@@ -138,7 +138,7 @@ export function planView(
     svgEl(icons.save), 'Opslaan');
   const gpxBtn = el('button', { type: 'button', class: 'btn', onclick: exportGpx, disabled: true, title: 'Download als GPX' },
     svgEl(icons.download), 'GPX');
-  const elevChevron = el('button', { type: 'button', class: 'btn btn-icon plan-chevron', title: 'Hoogteprofiel tonen', onclick: toggleElev },
+  const elevChevron = el('button', { type: 'button', class: 'btn btn-icon plan-chevron', title: 'Hoogteprofiel tonen', 'aria-label': 'Hoogteprofiel tonen', onclick: toggleElev },
     svgEl(icons.chevronD));
   const elevBox = el('div', { class: 'plan-elev', style: 'display:none' });
 
@@ -380,6 +380,7 @@ export function planView(
     elevBox.style.display = elevOpen ? '' : 'none';
     elevChevron.classList.toggle('open', elevOpen);
     elevChevron.title = elevOpen ? 'Hoogteprofiel verbergen' : 'Hoogteprofiel tonen';
+    elevChevron.setAttribute('aria-label', elevOpen ? 'Hoogteprofiel verbergen' : 'Hoogteprofiel tonen');
     if (elevOpen) updateElevation();
     else { elevProfile?.destroy(); elevProfile = null; hover.hide(); }
   }

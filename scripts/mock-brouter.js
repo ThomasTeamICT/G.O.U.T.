@@ -19,6 +19,39 @@ function segment(a, b, n) {
 
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
+
+  // Custom-profielupload (zoals brouter.de/brouter/profile)
+  if (req.method === 'POST' && url.pathname.endsWith('/profile')) {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body.includes('assign') ? { profileid: 'custom_mock1' } : { error: 'ongeldig profiel' }));
+    });
+    return;
+  }
+
+  // Nep-Waymarked-Trails (zet WMT_BASE=http://localhost:17777/wmt/{site})
+  if (url.pathname.includes('/wmt/')) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    if (url.pathname.includes('/list/search')) {
+      res.end(JSON.stringify({ results: [
+        { id: 901, name: 'GR 12 Amsterdam - Parijs', ref: 'GR12', group: 'NAT' },
+        { id: 902, name: 'Via Turonensis (Parijs - Tours)', ref: null, group: 'INT' },
+      ] }));
+    } else if (url.pathname.includes('/geometry/geojson')) {
+      res.end(JSON.stringify({ type: 'MultiLineString', coordinates: [
+        [[4.30, 50.90], [4.25, 50.92], [4.20, 50.93]],
+        [[4.20, 50.93], [4.15, 50.95], [4.10, 50.96]],
+      ] }));
+    } else if (url.pathname.match(/relation\/\d+$/)) {
+      res.end(JSON.stringify({ name: 'Via Turonensis (Parijs - Tours)', ref: null }));
+    } else {
+      res.end('{}');
+    }
+    return;
+  }
+
   const lonlats = (url.searchParams.get('lonlats') || '')
     .split('|').map((p) => p.split(',').map(Number));
   if (lonlats.length < 2 || lonlats.some((p) => p.some(Number.isNaN))) {
