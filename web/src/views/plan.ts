@@ -69,6 +69,11 @@ export function planView(
   // zonder bewerkbare waypoints (enkel de volledige geometrie, opslaan & GPX).
   let loadedRoute: { name: string; ref: string | null; track: TrackPoint[] } | null = null;
 
+  // Referentie naar de open 'Bekende routes'-modal (met haar laadtimers + fetch),
+  // zodat de view-cleanup ze bij wegnavigeren netjes opruimt: geen weesmodal die
+  // over de volgende pagina blijft hangen, geen tikkende timers, fetch afgebroken.
+  let closeKnownModal: (() => void) | null = null;
+
   // Dagetappes (camino-workflow): een deel kiezen (A/B) en in dagen splitsen.
   type PickState = 'idle' | 'a' | 'b';
   let pickState: PickState = 'idle';
@@ -171,7 +176,7 @@ export function planView(
   const beelineBtn = iconBtn(icons.route, 'Nieuwe segmenten hemelsbreed aan/uit', toggleBeeline);
   const gpsBtn = iconBtn(icons.locate, 'Toon mijn positie (GPS)', toggleGps);
   const hlBtn = iconBtn(icons.flag, 'Highlights tonen', toggleHighlights);
-  const loopBtn = iconBtn(icons.route, 'Sluit de lus', () => closeLoop(true));
+  const loopBtn = iconBtn(icons.loop, 'Sluit de lus', () => closeLoop(true));
   const clearBtn = iconBtn(icons.trash, 'Alles wissen', clearAll);
   const actions = el('div', { class: 'plan-actions' },
     undoBtn, redoBtn, reverseBtn, beelineBtn, gpsBtn, hlBtn, loopBtn, clearBtn);
@@ -1014,6 +1019,10 @@ export function planView(
     partBtn.replaceChildren(svgEl(icons.flag),
       pickingActive() ? 'Stop kiezen' : subTrack ? 'Opnieuw kiezen' : 'Kies je deel');
     partBtn.classList.toggle('active', pickingActive());
+    // Tijdens het A/B-kiezen wijkt het dagetappepaneel: anders bedekt het (vooral
+    // op mobiel) de onderste kaart en de kies-hint. Het komt terug zodra het deel
+    // gekozen of het kiezen geannuleerd is.
+    if (pickingActive()) { etapPanel.style.display = 'none'; return; }
     etapPanel.style.display = '';
     renderEtapList();
     const n = splits.length + 1;
@@ -1108,7 +1117,13 @@ export function planView(
       if (loadStatusTimer) { clearInterval(loadStatusTimer); loadStatusTimer = undefined; }
       if (loadSecTimer) { clearInterval(loadSecTimer); loadSecTimer = undefined; }
     }
-    const close = modal(box, { onClose: () => { stopLoadingTimers(); loadAbort?.abort(); } });
+    const close = modal(box, { onClose: () => { stopLoadingTimers(); loadAbort?.abort(); closeKnownModal = null; } });
+    // Voor de view-cleanup: bij wegnavigeren tijdens het laden sluit dit de modal,
+    // breekt de fetch af en stopt de tikkende timers (geen weesmodal/timers).
+    closeKnownModal = () => { stopLoadingTimers(); loadAbort?.abort(); close(); };
+    // Sluitknop onderaan, consistent met de andere modals.
+    box.append(el('div', { class: 'modal-actions' },
+      el('button', { type: 'button', class: 'btn', onclick: () => close() }, 'Sluiten')));
     setTimeout(() => input.focus(), 0);
 
     function showSpinner() { list.replaceChildren(el('div', { class: 'spinner' })); }
@@ -1398,6 +1413,7 @@ export function planView(
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('mousedown', onDocDown);
     window.removeEventListener('resize', positionEtapPanel);
+    closeKnownModal?.(); // sluit een open bekende-routes-modal, stopt timers, breekt fetch af
     if (hintTimer) clearTimeout(hintTimer);
     stopGps();
     map.off('moveend', hlMoveHandler);

@@ -100,7 +100,10 @@ body.live-open .more-fab, body.live-open .back-fab { display: none; }
 .import-drop b { color: var(--ink-soft); }
 
 /* ---------- live volgen ---------- */
-.live-overlay { position: fixed; inset: 0; z-index: 900; background: var(--bg); }
+.live-overlay { position: fixed; inset: 0; z-index: 1100; background: var(--bg); }
+/* De Leaflet-controls (lagen/zoom/attributie) van de onderliggende detailkaart
+   niet door de live-overlay laten prikken. */
+body.live-open .route-detail-map .leaflet-control-container { display: none; }
 .live-map { position: absolute; inset: 0; }
 .live-top {
   position: absolute; top: 0; left: 0; right: 0; z-index: 20;
