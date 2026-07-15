@@ -13,7 +13,7 @@ import {
   createMap, trackToLatLngs, fitToTrack, waypointIcon, hoverMarker, positionIcon,
   ROUTE_STYLE, ROUTE_CASING, BEELINE_STYLE,
 } from '../lib/map';
-import { trackDistance, ascentDescent, simplify, haversine } from '../lib/geo';
+import { trackDistance, ascentDescent, simplify, haversine, cumulative, nearestPointIndex } from '../lib/geo';
 import { estimateDuration, difficulty } from '../lib/estimate';
 import { renderElevation, type ElevationProfile } from '../lib/elevation';
 import { downloadGpx } from '../lib/gpx';
@@ -25,6 +25,24 @@ const KNOWN_CHIPS = [
   'Camino Francés', 'Via Turonensis', 'Via Podiensis (GR65)',
   'GR 5', 'GR 12', 'GR 128 Vlaanderen',
 ];
+
+// Wisselende Vlaamse statusregels tijdens het laden van een (lange) bekende route.
+const KNOWN_LOAD_STATUS = [
+  'Route aan het opsnorren bij OpenStreetMap…',
+  'Alle bochten en kronkels aan het verzamelen…',
+  'Zijpaadjes en varianten aan het wegknippen…',
+  'De kilometers aan het natellen…',
+  'Bijna klaar — de laatste hectometers…',
+];
+// Kronkelend routepad voor het laadanimatietje (zelfde d als de CSS offset-path).
+const KNOWN_LOAD_PATH = 'M12,58 C40,20 62,68 92,44 C120,22 150,64 188,34';
+const KNOWN_LOAD_SVG =
+  '<svg class="kr-svg" viewBox="0 0 200 80" width="200" height="80" fill="none">' +
+  `<path d="${KNOWN_LOAD_PATH}" stroke="#fff" stroke-width="7" stroke-linecap="round"/>` +
+  `<path class="kr-line" d="${KNOWN_LOAD_PATH}" stroke="var(--route)" stroke-width="3.5" stroke-linecap="round"/>` +
+  '<circle cx="12" cy="58" r="7" fill="var(--green)" stroke="#fff" stroke-width="2"/>' +
+  '<text x="12" y="60.5" text-anchor="middle" font-size="8" font-weight="700" fill="#fff">A</text>' +
+  '</svg>';
 
 export function planView(
   _container: HTMLElement,
@@ -51,6 +69,15 @@ export function planView(
   // zonder bewerkbare waypoints (enkel de volledige geometrie, opslaan & GPX).
   let loadedRoute: { name: string; ref: string | null; track: TrackPoint[] } | null = null;
 
+  // Dagetappes (camino-workflow): een deel kiezen (A/B) en in dagen splitsen.
+  type PickState = 'idle' | 'a' | 'b';
+  let pickState: PickState = 'idle';
+  let pickA: number | null = null;   // index in loadedRoute.track
+  let pickB: number | null = null;
+  let subTrack: TrackPoint[] | null = null; // gekozen deel (null = hele geladen route)
+  let splits: number[] = [];         // gesorteerde interne split-indices in de actieve track
+  let lastEtapEdit: 'km' | 'days' = 'km';
+
   let elevProfile: ElevationProfile | null = null;
   let elevOpen = false;
 
@@ -70,6 +97,7 @@ export function planView(
 
   const LOADING_STYLE: L.PolylineOptions = { color: '#8f8c7f', weight: 2.5, opacity: 0.75, dashArray: '4 8' };
   const HL_STYLE: L.PolylineOptions = { color: '#e8590c', weight: 4, opacity: 0.7 };
+  const DIM_STYLE: L.PolylineOptions = { color: '#3557e0', weight: 3, opacity: 0.25 };
 
   /* ------------------------------ DOM ------------------------------ */
   const mapEl = el('div', { style: 'position:absolute;inset:0;' });
@@ -172,10 +200,14 @@ export function planView(
     svgEl(icons.chevronD));
   const elevBox = el('div', { class: 'plan-elev', style: 'display:none' });
 
+  // 'Kies je deel' (dagetappes) — in de statsbalk bij de 'Geladen: …'-badge.
+  const partBtn = el('button', { type: 'button', class: 'btn btn-sm plan-part-btn', style: 'display:none', onclick: () => onPartBtn() },
+    svgEl(icons.flag), 'Kies je deel');
+
   const statsCard = el('div', { class: 'card plan-stats' },
     el('div', { class: 'plan-stats-row' },
       statline,
-      el('div', { class: 'plan-stats-actions' }, elevChevron, gpxBtn, saveBtn),
+      el('div', { class: 'plan-stats-actions' }, partBtn, elevChevron, gpxBtn, saveBtn),
     ),
     elevBox,
   );
@@ -187,22 +219,56 @@ export function planView(
   // De hint vervaagt na 8 s vanzelf (of verdwijnt meteen bij het eerste punt).
   let hintTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => hint.classList.add('faded'), 8000);
 
+  // ----- dagetappepaneel (deel kiezen → dagen) -----
+  const kmInput = el('input', { class: 'input', type: 'number', min: '5', step: '1', value: '25', inputmode: 'numeric' }) as HTMLInputElement;
+  const daysInput = el('input', { class: 'input', type: 'number', min: '1', step: '1', placeholder: 'bv. 3', inputmode: 'numeric' }) as HTMLInputElement;
+  kmInput.addEventListener('input', () => { lastEtapEdit = 'km'; });
+  daysInput.addEventListener('input', () => { lastEtapEdit = 'days'; });
+  const autoBtn = el('button', { type: 'button', class: 'btn btn-sm etap-auto', onclick: () => autoDistribute() }, svgEl(icons.route), 'Verdeel automatisch');
+  const etapList = el('div', { class: 'etap-list' });
+  const etapTotal = el('div', { class: 'etap-total' });
+  const fullChk = el('input', { type: 'checkbox' }) as HTMLInputElement;
+  const etapSaveBtn = el('button', { type: 'button', class: 'btn btn-primary etap-save', onclick: () => saveEtappes() }, svgEl(icons.save), 'Bewaar route');
+  const etapPanel = el('div', { class: 'card plan-etap', style: 'display:none' },
+    el('div', { class: 'etap-head' },
+      el('strong', {}, 'Dagetappes'),
+      el('span', { class: 'etap-sub' }, 'Verdeel je route in dagen'),
+    ),
+    el('div', { class: 'etap-inputs' },
+      el('label', { class: 'field etap-field' }, el('span', {}, 'km per dag'), kmInput),
+      el('label', { class: 'field etap-field' }, el('span', {}, 'aantal dagen'), daysInput),
+    ),
+    autoBtn,
+    el('p', { class: 'etap-tip' }, 'Klik op de lijn om zelf een splitsing te zetten; klik een splitsmarker om ze te verwijderen.'),
+    etapList,
+    etapTotal,
+    el('label', { class: 'etap-chk' }, fullChk, el('span', {}, 'Ook de volledige route bewaren')),
+    etapSaveBtn,
+  );
+
+  // Hint tijdens het kiezen van A/B (los van de gewone begin-hint).
+  const pickHintText = el('div', {}, '');
+  const pickHint = el('div', { class: 'plan-hint plan-pickhint', style: 'display:none' }, svgEl(icons.flag), pickHintText);
+
   const topleft = el('div', { class: 'plan-topleft' }, knownBtn, searchWrap, sportPicker);
   holder.append(
     topleft,
     el('div', { class: 'plan-topright' }, actions),
     hint,
+    pickHint,
     statsCard,
+    etapPanel,
   );
 
   // panelen mogen de kaart niet aansturen
-  for (const p of [knownBtn, searchWrap, sportPicker, actions, statsCard]) {
+  for (const p of [knownBtn, searchWrap, sportPicker, actions, statsCard, etapPanel]) {
     L.DomEvent.disableClickPropagation(p);
     L.DomEvent.disableScrollPropagation(p);
   }
 
   map.on('click', async (e: L.LeafletMouseEvent) => {
     if (ignoreNextMapClick) { ignoreNextMapClick = false; return; }
+    if (pickingActive()) { handlePickClick(e.latlng.lng, e.latlng.lat); return; }
     if (loadedRoute) {
       const ok = await confirmDialog('Geladen route vervangen?',
         'Wil je de geladen route vervangen door een eigen route? Je begint dan met een leeg plan.', 'Ja, eigen route');
@@ -573,18 +639,18 @@ export function planView(
   }
 
   function currentTrack(): TrackPoint[] {
-    return loadedRoute ? loadedRoute.track : assembleTrack();
+    return loadedRoute ? etappeTrack() : assembleTrack();
   }
 
   function updateStats() {
     if (loadedRoute) {
-      distV.textContent = fmtKm(trackDistance(loadedRoute.track));
+      distV.textContent = fmtKm(trackDistance(etappeTrack()));
       durV.textContent = '—'; durV.title = 'Geen hoogtedata: tijd niet te schatten';
       upV.textContent = '—'; upV.title = 'Geen hoogtedata beschikbaar voor bekende routes';
       downV.textContent = '—'; downV.title = 'Geen hoogtedata beschikbaar voor bekende routes';
       diffHolder.replaceChildren(
         el('span', { class: 'badge badge-neutral plan-loaded-badge', title: 'Geladen route uit de bibliotheek — bewaar of download' },
-          'Geladen: ' + loadedRoute.name + (loadedRoute.ref ? ' · ' + loadedRoute.ref : '')),
+          'Geladen: ' + loadedRoute.name + (loadedRoute.ref ? ' · ' + loadedRoute.ref : '') + (subTrack ? ' · deel' : '')),
       );
       return;
     }
@@ -653,6 +719,7 @@ export function planView(
     redraw();
     updateStats();
     updateButtons();
+    updateEtapUi();
     updateElevation();
     if (!loadedRoute) computeMissing();
   }
@@ -670,13 +737,46 @@ export function planView(
     markerLayer.clearLayers();
 
     if (loadedRoute) {
-      const t = loadedRoute.track;
-      // Niet-interactief zodat een klik op de lijn de kaart-klik (vervangen) bereikt.
-      L.polyline(trackToLatLngs(t), { ...ROUTE_CASING, interactive: false }).addTo(legLayer);
-      L.polyline(trackToLatLngs(t), { ...ROUTE_STYLE, interactive: false }).addTo(legLayer);
-      const a = t[0], b = t[t.length - 1];
-      L.marker([a[1], a[0]], { icon: waypointIcon('start'), interactive: false }).addTo(markerLayer);
-      L.marker([b[1], b[0]], { icon: waypointIcon('end'), interactive: false }).addTo(markerLayer);
+      const full = loadedRoute.track;
+      const active = etappeTrack();
+      const canEdit = !pickingActive(); // buiten de kies-modus is de lijn klikbaar voor splits
+
+      // Buiten het gekozen deel blijft de volledige lijn gedimd zichtbaar.
+      if (subTrack) {
+        L.polyline(trackToLatLngs(full), { ...DIM_STYLE, interactive: false }).addTo(legLayer);
+      }
+      // Actieve route (deel of volledige geladen route) met witte casing.
+      L.polyline(trackToLatLngs(active), { ...ROUTE_CASING, interactive: false }).addTo(legLayer);
+      const line = L.polyline(trackToLatLngs(active), { ...ROUTE_STYLE, interactive: canEdit }).addTo(legLayer);
+      if (canEdit) {
+        line.on('click', (e: L.LeafletMouseEvent) => {
+          ignoreNextMapClick = true;
+          queueMicrotask(() => { ignoreNextMapClick = false; });
+          addSplitAt(e.latlng.lng, e.latlng.lat);
+        });
+      }
+
+      if (canEdit) {
+        const a0 = active[0], b0 = active[active.length - 1];
+        L.marker([a0[1], a0[0]], { icon: waypointIcon('start'), interactive: false }).addTo(markerLayer);
+        L.marker([b0[1], b0[0]], { icon: waypointIcon('end'), interactive: false }).addTo(markerLayer);
+        // Genummerde splitmarkers (via-stijl) — klik = verwijderen.
+        splits.forEach((idx, i) => {
+          if (idx <= 0 || idx >= active.length - 1) return;
+          const p = active[idx];
+          const m = L.marker([p[1], p[0]], { icon: waypointIcon('via', String(i + 1)) });
+          m.on('click', () => {
+            ignoreNextMapClick = true;
+            queueMicrotask(() => { ignoreNextMapClick = false; });
+            removeSplit(i);
+          });
+          m.addTo(markerLayer);
+        });
+      } else if (pickA !== null) {
+        // Tijdens het kiezen: toon enkel de reeds gekozen A.
+        const pa = full[pickA];
+        L.marker([pa[1], pa[0]], { icon: waypointIcon('start'), interactive: false }).addTo(markerLayer);
+      }
       return;
     }
 
@@ -718,6 +818,278 @@ export function planView(
     }
   }
 
+  /* ------------------------- dagetappes (deel kiezen + verdelen) ------------------------- */
+  function etappeTrack(): TrackPoint[] {
+    if (!loadedRoute) return [];
+    return subTrack || loadedRoute.track;
+  }
+
+  function pickingActive(): boolean {
+    return pickState === 'a' || pickState === 'b';
+  }
+
+  function resetEtappe() {
+    pickState = 'idle';
+    pickA = null; pickB = null;
+    subTrack = null;
+    splits = [];
+    lastEtapEdit = 'km';
+    kmInput.value = '25';
+    daysInput.value = '';
+    fullChk.checked = false;
+    pickHint.style.display = 'none';
+  }
+
+  function setPickHint(text: string) {
+    pickHintText.textContent = text;
+    pickHint.style.display = '';
+  }
+
+  function onPartBtn() {
+    if (!loadedRoute) return;
+    if (pickingActive()) cancelPick();
+    else startPick();
+  }
+
+  function startPick() {
+    pickState = 'a';
+    pickA = null; pickB = null;
+    subTrack = null;
+    splits = [];
+    setPickHint('Klik het beginpunt van jouw stuk');
+    afterChange();
+  }
+
+  function cancelPick() {
+    pickState = 'idle';
+    pickA = null; pickB = null;
+    pickHint.style.display = 'none';
+    afterChange();
+  }
+
+  function handlePickClick(lon: number, lat: number) {
+    if (!loadedRoute) return;
+    const idx = nearestPointIndex(loadedRoute.track, lon, lat).index;
+    if (pickState === 'a') {
+      pickA = idx;
+      pickState = 'b';
+      setPickHint('Klik het eindpunt');
+      afterChange();
+    } else if (pickState === 'b') {
+      if (pickA === null || idx === pickA) { toast('Kies een eindpunt verder van het begin.'); return; }
+      pickB = idx;
+      finalizePick();
+    }
+  }
+
+  function finalizePick() {
+    if (!loadedRoute || pickA === null || pickB === null) return;
+    const track = loadedRoute.track;
+    const lo = Math.min(pickA, pickB);
+    const hi = Math.max(pickA, pickB);
+    let slice = track.slice(lo, hi + 1);
+    if (pickA > pickB) slice = slice.slice().reverse();
+    subTrack = slice;
+    splits = [];
+    pickState = 'idle';
+    pickA = null; pickB = null;
+    pickHint.style.display = 'none';
+    afterChange();
+    toast('Deel gekozen: ' + fmtKm(trackDistance(slice)) + '.');
+  }
+
+  // Dichtstbijzijnde trackpunt-index bij een cumulatieve afstand.
+  function indexAtDistance(cum: number[], atM: number): number {
+    if (atM <= 0) return 0;
+    const last = cum.length - 1;
+    if (atM >= cum[last]) return last;
+    let lo = 0, hi = last;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1;
+      if (cum[mid] <= atM) lo = mid; else hi = mid;
+    }
+    return (atM - cum[lo] <= cum[hi] - atM) ? lo : hi;
+  }
+
+  function addSplitAt(lon: number, lat: number) {
+    const active = etappeTrack();
+    if (active.length < 3) return;
+    const idx = nearestPointIndex(active, lon, lat).index;
+    if (idx <= 0 || idx >= active.length - 1) return;
+    if (splits.includes(idx)) return;
+    splits = [...splits, idx].sort((a, b) => a - b);
+    afterChange();
+  }
+
+  function removeSplit(i: number) {
+    if (i < 0 || i >= splits.length) return;
+    splits = splits.filter((_, k) => k !== i);
+    afterChange();
+  }
+
+  function autoDistribute() {
+    const active = etappeTrack();
+    if (active.length < 2) { toast('Er is nog geen route om te verdelen.', 'error'); return; }
+    const cum = cumulative(active);
+    const total = cum[cum.length - 1];
+    let n: number;
+    if (lastEtapEdit === 'days') {
+      n = Math.max(1, Math.floor(Number(daysInput.value) || 1));
+    } else {
+      const per = Math.max(5, Number(kmInput.value) || 25) * 1000;
+      n = Math.max(1, Math.round(total / per));
+    }
+    const MIN = 2000; // geen splits < 2 km van elkaar of van begin/eind
+    const out: number[] = [];
+    let lastM = 0;
+    for (let k = 1; k < n; k++) {
+      const idx = indexAtDistance(cum, (total * k) / n);
+      if (idx <= 0 || idx >= active.length - 1) continue;
+      const dM = cum[idx];
+      if (dM - lastM < MIN || total - dM < MIN) continue;
+      if (out.length && idx === out[out.length - 1]) continue;
+      out.push(idx);
+      lastM = dM;
+    }
+    splits = out;
+    const days = splits.length + 1;
+    daysInput.value = String(days);
+    kmInput.value = String(Math.max(1, Math.round(total / days / 1000)));
+    afterChange();
+  }
+
+  function etapBoundaries(): number[] {
+    const active = etappeTrack();
+    if (active.length < 2) return [];
+    return [0, ...splits, active.length - 1];
+  }
+
+  function etapSlices(): TrackPoint[][] {
+    const active = etappeTrack();
+    const b = etapBoundaries();
+    const out: TrackPoint[][] = [];
+    for (let i = 0; i < b.length - 1; i++) out.push(active.slice(b[i], b[i + 1] + 1));
+    return out;
+  }
+
+  function renderEtapList() {
+    const active = etappeTrack();
+    etapList.replaceChildren();
+    if (active.length < 2) { etapTotal.replaceChildren(); return; }
+    const cum = cumulative(active);
+    const b = etapBoundaries();
+    let total = 0;
+    for (let i = 0; i < b.length - 1; i++) {
+      const distM = cum[b[i + 1]] - cum[b[i]];
+      total += distM;
+      etapList.append(el('div', { class: 'etap-row' },
+        el('span', { class: 'etap-day' }, 'Dag ' + (i + 1)),
+        el('span', { class: 'etap-km' }, fmtKm(distM)),
+      ));
+    }
+    const days = b.length - 1;
+    etapTotal.replaceChildren(
+      el('span', {}, days + (days === 1 ? ' dag' : ' dagen')),
+      el('span', {}, 'Totaal ' + fmtKm(total)),
+    );
+  }
+
+  function positionEtapPanel() {
+    if (etapPanel.style.display === 'none') return;
+    if (window.matchMedia('(max-width: 760px)').matches) {
+      const h = statsCard.getBoundingClientRect().height;
+      etapPanel.style.bottom = (h > 0 ? h + 8 : 96) + 'px';
+    } else {
+      etapPanel.style.bottom = '';
+    }
+  }
+
+  function updateEtapUi() {
+    if (!loadedRoute) {
+      partBtn.style.display = 'none';
+      etapPanel.style.display = 'none';
+      return;
+    }
+    partBtn.style.display = '';
+    partBtn.replaceChildren(svgEl(icons.flag),
+      pickingActive() ? 'Stop kiezen' : subTrack ? 'Opnieuw kiezen' : 'Kies je deel');
+    partBtn.classList.toggle('active', pickingActive());
+    etapPanel.style.display = '';
+    renderEtapList();
+    const n = splits.length + 1;
+    etapSaveBtn.replaceChildren(svgEl(icons.save), n === 1 ? 'Bewaar route' : ('Bewaar ' + n + ' dagetappes'));
+    positionEtapPanel();
+  }
+
+  async function bestRegion(lon: number, lat: number): Promise<string | null> {
+    try {
+      const r = await api.get<{ region: string | null }>(`/api/revgeocode?lat=${lat}&lon=${lon}`);
+      return r.region;
+    } catch { return null; }
+  }
+
+  async function saveEtappes() {
+    if (!loadedRoute) return;
+    const slices = etapSlices();
+    if (!slices.length || slices.some((s) => s.length < 2)) {
+      toast('Er is nog geen bruikbare route om te bewaren.', 'error');
+      return;
+    }
+    const n = slices.length;
+    const routeName = loadedRoute.name;
+    const cum = cumulative(etappeTrack());
+    const b = etapBoundaries();
+    const lines: string[] = [];
+    for (let i = 0; i < n; i++) lines.push(`Dag ${i + 1}: ${fmtKm(cum[b[i + 1]] - cum[b[i]])}`);
+    const shown = lines.slice(0, 8).join('\n') + (lines.length > 8 ? '\n…' : '');
+    const summary = (n === 1 ? 'Je bewaart deze route als één route.' : `Je bewaart ${n} dagetappes als aparte routes.`)
+      + '\n\n' + shown
+      + (fullChk.checked ? '\n\n+ de volledige route apart.' : '');
+    const confirmLabel = n === 1 ? 'Bewaar route' : `Bewaar ${n} dagetappes`;
+    const ok = await confirmDialog(n === 1 ? 'Route bewaren?' : `${n} dagetappes bewaren?`, summary, confirmLabel);
+    if (!ok) return;
+
+    etapSaveBtn.disabled = true;
+    etapSaveBtn.replaceChildren('Bezig met bewaren…');
+
+    let saved = 0;
+    let region: string | null = null;
+    try {
+      for (let i = 0; i < n; i++) {
+        const slice = slices[i];
+        if (i === 0) region = await bestRegion(slice[0][0], slice[0][1]);
+        const suffix = ` — dag ${i + 1}`;
+        const base = routeName.slice(0, Math.max(1, 120 - suffix.length));
+        const name = n === 1 ? routeName.slice(0, 120) : base + suffix;
+        await api.post<{ route: RouteFull }>('/api/routes', {
+          name, sport, waypoints: null, track: slice, region: i === 0 ? region : null,
+        });
+        saved++;
+      }
+    } catch {
+      etapSaveBtn.disabled = false;
+      updateEtapUi();
+      toast(`${saved} van ${n} dagetappe(s) bewaard; opslaan is onderweg misgelopen.`, 'error');
+      if (saved > 0) navigate('/routes');
+      return;
+    }
+
+    if (fullChk.checked) {
+      try {
+        const full = loadedRoute.track;
+        const fullRegion = await bestRegion(full[0][0], full[0][1]);
+        await api.post<{ route: RouteFull }>('/api/routes', {
+          name: routeName.slice(0, 120), sport, waypoints: null, track: full, region: fullRegion,
+        });
+      } catch {
+        toast('De dagetappes zijn bewaard, maar de volledige route niet.', 'error');
+      }
+    }
+
+    toast(n === 1 ? 'Route bewaard.' : `${n} dagetappes bewaard.`);
+    navigate('/routes');
+  }
+
   /* ------------------------- bekende routes ------------------------- */
   function openKnownRoutes() {
     const info = el('p', { class: 'kr-info' }, 'Vind een GR of camino en laad ze in één klik als route.');
@@ -729,7 +1101,14 @@ export function planView(
       el('div', { class: 'kr-empty' }, 'Typ hierboven of kies een route om te beginnen.'));
     const box = el('div', { class: 'kr-modal' },
       el('h2', {}, 'Bekende routes'), info, input, chipsWrap, list);
-    const close = modal(box);
+    let loadStatusTimer: ReturnType<typeof setInterval> | undefined;
+    let loadSecTimer: ReturnType<typeof setInterval> | undefined;
+    let loadAbort: AbortController | null = null;
+    function stopLoadingTimers() {
+      if (loadStatusTimer) { clearInterval(loadStatusTimer); loadStatusTimer = undefined; }
+      if (loadSecTimer) { clearInterval(loadSecTimer); loadSecTimer = undefined; }
+    }
+    const close = modal(box, { onClose: () => { stopLoadingTimers(); loadAbort?.abort(); } });
     setTimeout(() => input.focus(), 0);
 
     function showSpinner() { list.replaceChildren(el('div', { class: 'spinner' })); }
@@ -762,6 +1141,46 @@ export function planView(
       }
     }
 
+    function backToResults() {
+      const q = input.value.trim();
+      if (q.length >= 2) { showSpinner(); doKnownSearch(q); }
+      else list.replaceChildren(el('div', { class: 'kr-empty' }, 'Typ hierboven of kies een route om te beginnen.'));
+    }
+
+    // Verzorgd laadpaneel: kronkelende route-animatie + wisselende statusregels
+    // + secondenteller. Puur CSS-animatie; hier enkel de tekst-intervallen.
+    function showLoadingPanel() {
+      const statusP = el('p', { class: 'kr-load-status' }, KNOWN_LOAD_STATUS[0]);
+      const timerP = el('span', { class: 'kr-load-timer' }, 'al 0s bezig');
+      const walker = el('div', { class: 'kr-walker' }, svgEl(icons.walk));
+      list.replaceChildren(el('div', { class: 'kr-loading' },
+        el('div', { class: 'kr-anim', html: KNOWN_LOAD_SVG }, walker),
+        statusP,
+        el('p', { class: 'kr-load-note' },
+          'Lange routes zoals een camino kunnen tot een minuut duren. Eenmaal geladen gaat het daarna in één tel.'),
+        timerP,
+        el('button', { type: 'button', class: 'btn btn-ghost kr-load-cancel', onclick: () => loadAbort?.abort() }, 'Annuleren'),
+      ));
+      const startedAt = Date.now();
+      let si = 0;
+      loadStatusTimer = setInterval(() => {
+        if (si < KNOWN_LOAD_STATUS.length - 1) { si++; statusP.textContent = KNOWN_LOAD_STATUS[si]; }
+      }, 4000);
+      loadSecTimer = setInterval(() => {
+        timerP.textContent = `al ${Math.round((Date.now() - startedAt) / 1000)}s bezig`;
+      }, 1000);
+    }
+
+    function showLoadError(id: number, msg: string) {
+      list.replaceChildren(el('div', { class: 'kr-load-error' },
+        el('p', { class: 'kr-load-errmsg' }, msg),
+        el('div', { class: 'kr-load-erractions' },
+          el('button', { type: 'button', class: 'btn btn-ghost', onclick: backToResults }, 'Terug'),
+          el('button', { type: 'button', class: 'btn btn-primary', onclick: () => loadKnown(id) }, 'Probeer opnieuw'),
+        ),
+      ));
+    }
+
     async function loadKnown(id: number) {
       if (waypoints.length >= 1 || loadedRoute) {
         const ok = await confirmDialog('Route vervangen?',
@@ -769,21 +1188,31 @@ export function planView(
         if (!ok) return;
       }
       input.disabled = true;
-      list.replaceChildren(el('div', { class: 'kr-loading' },
-        el('div', { class: 'spinner' }),
-        el('p', {}, 'Route ophalen — lange routes kunnen even duren…'),
-      ));
+      stopLoadingTimers();
+      loadAbort = new AbortController();
+      showLoadingPanel();
       try {
-        const data = await api.get<{ name: string; ref: string | null; track: [number, number][]; note: string }>(
-          `/api/knownroutes/${id}?sport=${encodeURIComponent(sport)}`);
-        if (!data.track || data.track.length < 2) throw new Error('Deze route bevat geen bruikbare geometrie.');
+        const res = await fetch(`/api/knownroutes/${id}?sport=${encodeURIComponent(sport)}`, { signal: loadAbort.signal });
+        const text = await res.text();
+        let data: any = null;
+        try { data = text ? JSON.parse(text) : null; } catch { /* geen JSON */ }
+        if (!res.ok) throw new Error(data?.error || `Serverfout (${res.status})`);
+        if (!data || !Array.isArray(data.track) || data.track.length < 2) {
+          throw new Error('Deze route bevat geen bruikbare geometrie.');
+        }
+        stopLoadingTimers();
+        loadAbort = null;
         close();
-        enterLoadedMode(data.name, data.ref, data.track.map((p) => [p[0], p[1]] as TrackPoint));
+        enterLoadedMode(data.name, data.ref, (data.track as [number, number][]).map((p) => [p[0], p[1]] as TrackPoint));
         toast('Route geladen: ' + data.name);
       } catch (err: any) {
+        stopLoadingTimers();
         input.disabled = false;
+        const aborted = err?.name === 'AbortError';
+        loadAbort = null;
+        if (aborted) { backToResults(); return; }
         const msg = err?.message || 'Kon de route niet ophalen. Probeer opnieuw.';
-        list.replaceChildren(el('div', { class: 'kr-empty' }, msg));
+        showLoadError(id, msg);
         toast(msg, 'error');
       }
     }
@@ -799,6 +1228,7 @@ export function planView(
     redoStack.length = 0;
     editId = null;
     editMeta = { name, description: '', visibility: 'private' };
+    resetEtappe();
     afterChange();
     fitToTrack(map, track);
   }
@@ -809,6 +1239,7 @@ export function planView(
 
   function exitLoadedMode() {
     loadedRoute = null;
+    resetEtappe();
     legLayer.clearLayers();
     markerLayer.clearLayers();
     editMeta = { name: '', description: '', visibility: 'private' };
@@ -852,8 +1283,8 @@ export function planView(
       try {
         const track = currentTrack();
         const wps = loadedRoute ? null : waypoints.map((w) => (w.beeline ? { lon: w.lon, lat: w.lat, beeline: true } : { lon: w.lon, lat: w.lat }));
-        const startLat = loadedRoute ? loadedRoute.track[0][1] : waypoints[0].lat;
-        const startLon = loadedRoute ? loadedRoute.track[0][0] : waypoints[0].lon;
+        const startLat = loadedRoute ? track[0][1] : waypoints[0].lat;
+        const startLon = loadedRoute ? track[0][0] : waypoints[0].lon;
         let region: string | null = null;
         try {
           const r = await api.get<{ region: string | null }>(`/api/revgeocode?lat=${startLat}&lon=${startLon}`);
@@ -931,6 +1362,7 @@ export function planView(
     return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable);
   }
   function onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && pickingActive()) { e.preventDefault(); cancelPick(); return; }
     if (isTyping()) return;
     const ctrl = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
@@ -943,6 +1375,7 @@ export function planView(
   }
   document.addEventListener('keydown', onKey);
   document.addEventListener('mousedown', onDocDown);
+  window.addEventListener('resize', positionEtapPanel);
 
   /* ------------------------- start ------------------------- */
   sportBtns.get(sport)!.classList.add('active');
@@ -964,6 +1397,7 @@ export function planView(
   return () => {
     document.removeEventListener('keydown', onKey);
     document.removeEventListener('mousedown', onDocDown);
+    window.removeEventListener('resize', positionEtapPanel);
     if (hintTimer) clearTimeout(hintTimer);
     stopGps();
     map.off('moveend', hlMoveHandler);

@@ -114,8 +114,7 @@
 .kr-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .kr-ref { flex: none; }
 .kr-empty { color: var(--muted); text-align: center; padding: 1.4rem 1rem; font-size: .9rem; }
-.kr-loading { text-align: center; padding: 1.2rem 1rem; }
-.kr-loading p { color: var(--muted); font-size: .88rem; margin-top: .5rem; }
+/* .kr-loading — zie 'laadpaneel bekende route' onderaan dit bestand. */
 
 /* ---------- highlights-overlay ---------- */
 .hl-flag {
@@ -190,4 +189,88 @@
   .plan-loaded-badge { max-width: 60vw; }
   .plan-stats-actions { margin-left: auto; }
   .plan-elev { margin-top: .5rem; padding-top: .5rem; }
+}
+
+/* ---------- dagetappepaneel (deel kiezen -> dagen) ---------- */
+.plan-part-btn { flex: none; }
+.plan-part-btn svg { width: 15px; height: 15px; color: var(--green); }
+.plan-part-btn.active { background: var(--green); border-color: var(--green); color: #fff; }
+.plan-part-btn.active svg { color: #fff; }
+
+.plan-etap {
+  position: absolute; right: 12px; bottom: 104px; z-index: 801;
+  width: min(300px, calc(100% - 24px));
+  max-height: min(62vh, 540px); overflow: auto;
+  display: flex; flex-direction: column; gap: .55rem;
+  padding: .8rem;
+}
+.plan-etap .etap-head { display: flex; flex-direction: column; gap: .05rem; }
+.plan-etap .etap-head strong { font-size: 1rem; color: var(--ink); }
+.etap-sub { color: var(--muted); font-size: .8rem; }
+.etap-inputs { display: flex; gap: .5rem; }
+.etap-field { flex: 1; margin: 0; }
+.etap-field > span { margin-bottom: .2rem; font-size: .78rem; }
+.etap-field .input { padding: .45rem .55rem; }
+.etap-auto { align-self: flex-start; }
+.etap-auto svg { width: 15px; height: 15px; }
+.etap-tip { color: var(--muted); font-size: .78rem; line-height: 1.35; margin: 0; }
+.etap-list { display: flex; flex-direction: column; gap: .25rem; }
+.etap-row {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--surface-2); border-radius: var(--radius-s);
+  padding: .35rem .55rem; font-size: .86rem;
+}
+.etap-day { font-weight: 700; color: var(--ink); }
+.etap-km { color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.etap-total {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: .82rem; font-weight: 700; color: var(--ink);
+  border-top: 1px solid var(--line); padding-top: .45rem;
+}
+.etap-total span:first-child { color: var(--muted); font-weight: 600; }
+.etap-chk { display: flex; align-items: center; gap: .45rem; font-size: .82rem; color: var(--ink-soft); cursor: pointer; }
+.etap-chk input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; }
+.etap-save { justify-content: center; }
+
+.plan-pickhint svg { color: var(--accent); }
+
+/* ---------- laadpaneel bekende route (kronkelende route + wandelaar) ---------- */
+.kr-loading {
+  text-align: center; padding: 1.4rem 1rem 1.2rem;
+  display: flex; flex-direction: column; align-items: center; gap: .5rem;
+}
+.kr-anim { position: relative; width: 200px; height: 80px; margin-bottom: .2rem; }
+.kr-svg { display: block; }
+.kr-line { stroke-dasharray: 340; stroke-dashoffset: 340; animation: kr-draw 2.5s ease-in-out infinite; }
+.kr-walker {
+  position: absolute; top: 0; left: 0; width: 22px; height: 22px;
+  display: grid; place-items: center; color: #fff;
+  background: var(--accent); border: 2px solid #fff; border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+  offset-path: path('M12,58 C40,20 62,68 92,44 C120,22 150,64 188,34');
+  offset-anchor: center; offset-rotate: 0deg; offset-distance: 0%;
+  animation: kr-walk 2.5s ease-in-out infinite;
+}
+.kr-walker svg { width: 13px; height: 13px; }
+@keyframes kr-draw { 0% { stroke-dashoffset: 340; } 70%, 100% { stroke-dashoffset: 0; } }
+@keyframes kr-walk { 0% { offset-distance: 0%; } 70%, 100% { offset-distance: 100%; } }
+.kr-load-status { color: var(--ink); font-weight: 600; font-size: .95rem; margin: 0; min-height: 1.3em; }
+.kr-load-note { color: var(--muted); font-size: .82rem; margin: 0; max-width: 340px; line-height: 1.4; }
+.kr-load-timer { color: var(--muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.kr-load-cancel { margin-top: .35rem; }
+.kr-load-error { text-align: center; padding: 1.2rem 1rem; display: flex; flex-direction: column; gap: .8rem; align-items: center; }
+.kr-load-errmsg { color: var(--danger); font-weight: 600; font-size: .9rem; margin: 0; }
+.kr-load-erractions { display: flex; gap: .5rem; }
+@media (prefers-reduced-motion: reduce) {
+  .kr-line { animation: none; stroke-dashoffset: 0; }
+  .kr-walker { animation: none; offset-distance: 100%; }
+}
+
+/* ---------- dagetappepaneel op mobiel ---------- */
+@media (max-width: 760px) {
+  .plan-etap {
+    left: 8px; right: 8px; width: auto;
+    max-height: 40vh;
+  }
+  .plan-part-btn { padding: .4rem .55rem; }
 }
