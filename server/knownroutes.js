@@ -27,9 +27,9 @@ export const OVERPASS_INSTANCES = [
 ];
 
 // Ruwe Overpass-query met terugval over meerdere instanties.
-export async function overpassQuery(query, { timeoutMs = 100000 } = {}) {
+export async function overpassQuery(query, { timeoutMs = 100000, instances = OVERPASS_INSTANCES } = {}) {
   let saw429 = false;
-  for (const instantie of OVERPASS_INSTANCES) {
+  for (const instantie of instances) {
     try {
       const r = await fetch(instantie, {
         method: 'POST',
@@ -134,7 +134,7 @@ export function selectBranches(kettingen) {
 }
 
 // Volledige pijplijn met geheugen- + schijfcache en in-flight-dedupe.
-export async function fetchKnownRouteGeometry(id) {
+export async function fetchKnownRouteGeometry(id, opts = {}) {
   const cacheKey = `geom:${id}`;
   const cacheDir = join(DATA_DIR, 'cache');
   const cacheFile = join(cacheDir, `knownroute-${id}.json`);
@@ -150,7 +150,7 @@ export async function fetchKnownRouteGeometry(id) {
     if (!inflight.has(cacheKey)) {
       inflight.set(cacheKey, (async () => {
         const query = `[out:json][timeout:90];rel(${id})->.r0;rel(r.r0)->.r1;rel(r.r1)->.r2;(.r0; .r1; .r2;)->.rels;way(r.rels)->.wegen;(.rels; .wegen;);out geom;`;
-        const d = await overpassQuery(query);
+        const d = await overpassQuery(query, opts);
         if (!d.elements.length) throw new KnownRouteError(404, 'Geen geometrie gevonden voor deze route.');
         return d;
       })().finally(() => setTimeout(() => inflight.delete(cacheKey), 1000)));

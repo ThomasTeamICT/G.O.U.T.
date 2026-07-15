@@ -44,6 +44,39 @@ async function metGeduld(naam, fn, pogingen = 5) {
   }
 }
 
+// Geometrie per route: kort lontje (25 s, 2 pogingen) — één trage route mag de
+// oogst niet gijzelen. Bij 6 mislukkingen op rij: stroomonderbreker (5 min rust),
+// daarna nog één kans; blijft het misgaan, dan stoppen we netjes (hervatbaar).
+let mislukkingenOpRij = 0;
+async function haalGeometrieSnel(relId) {
+  for (let p = 1; p <= 2; p++) {
+    try {
+      const uit = await fetchKnownRouteGeometry(relId, { timeoutMs: 25_000 });
+      mislukkingenOpRij = 0;
+      return uit;
+    } catch (e) {
+      if (e?.status === 404) throw e; // geen geometrie = kandidaat echt ongeldig
+      if (p === 2) {
+        mislukkingenOpRij++;
+        if (mislukkingenOpRij === 6) {
+          console.log('  ⏸ 6 mislukkingen op rij — de OSM-server heeft ons even in de strafbank. Ik pauzeer 5 minuten…');
+          await slaap(300_000);
+          mislukkingenOpRij = 0;
+          try {
+            const uit = await fetchKnownRouteGeometry(relId, { timeoutMs: 25_000 });
+            return uit;
+          } catch {
+            console.log('  ✋ Nog steeds geweigerd na de rustpauze. Ik bewaar de voortgang — start het script later gewoon opnieuw.');
+            process.exit(2);
+          }
+        }
+        throw e;
+      }
+      await slaap(8_000);
+    }
+  }
+}
+
 // Zware startquery's 7 dagen cachen zodat een herstart ze niet opnieuw doet.
 async function metSchijfcache(bestand, ophaler) {
   const pad = join(DATA_DIR, 'cache', bestand);
@@ -232,7 +265,7 @@ async function verwerkGemeente(gemeente, kandidaten, bibId, droog) {
       const uitCache = cacheAanwezig(kand.id);
       let geo;
       try {
-        geo = await metGeduld('route ' + kand.id, () => fetchKnownRouteGeometry(kand.id), 4);
+        geo = await haalGeometrieSnel(kand.id);
       } catch {
         if (!uitCache) await sleep(PAUZE_MS);
         verworpen.push({ naam: kand.naam || `OSM ${kand.id}`, reden: 'geen geometrie' });
