@@ -31,6 +31,22 @@ http.createServer((req, res) => {
     return;
   }
 
+  // Nep-Overpass (zet OVERPASS_URL=http://localhost:17777/overpass)
+  if (url.pathname === '/overpass' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (d) => { body += d; });
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ elements: [
+        { type: 'way', id: 1, geometry: [
+          { lat: 50.90, lon: 4.30 }, { lat: 50.92, lon: 4.25 }, { lat: 50.93, lon: 4.20 }] },
+        { type: 'way', id: 2, geometry: [
+          { lat: 50.93, lon: 4.20 }, { lat: 50.95, lon: 4.15 }, { lat: 50.96, lon: 4.10 }] },
+      ] }));
+    });
+    return;
+  }
+
   // Nep-Waymarked-Trails (zet WMT_BASE=http://localhost:17777/wmt/{site})
   if (url.pathname.includes('/wmt/')) {
     res.writeHead(200, { 'Content-Type': 'application/json' });

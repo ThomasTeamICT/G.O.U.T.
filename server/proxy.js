@@ -171,20 +171,29 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
   const site = WMT_SITE[req.query.sport] || 'hiking';
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ongeldige route.' });
   try {
+    // Naam via Waymarked Trails (best effort), geometrie via Overpass (OSM zelf):
+    // de relatie + al haar deelrelaties, met weg-geometrie inline.
     const base = WMT_BASE.replace('{site}', site);
-    const [info, geom] = await Promise.all([
-      wmtFetch(`${base}/api/v1/details/relation/${id}`).catch(() => null),
-      wmtFetch(`${base}/api/v1/details/relation/${id}/geometry/geojson`),
-    ]);
+    const infoP = wmtFetch(`${base}/api/v1/details/relation/${id}`).catch(() => null);
+    const OVERPASS_URL = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter';
+    const query = `[out:json][timeout:120];rel(${id});(._;>>;);out geom;`;
+    const r = await fetch(OVERPASS_URL, {
+      method: 'POST',
+      headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(query),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!r.ok) throw new Error(`Overpass ${r.status}`);
+    const data = await r.json();
+
+    const seen = new Set();
     const segments = [];
-    (function collect(g) {
-      if (!g) return;
-      if (g.type === 'FeatureCollection') g.features.forEach((f) => collect(f));
-      else if (g.type === 'Feature') collect(g.geometry);
-      else if (g.type === 'GeometryCollection') g.geometries.forEach(collect);
-      else if (g.type === 'LineString') segments.push(g.coordinates);
-      else if (g.type === 'MultiLineString') segments.push(...g.coordinates);
-    })(geom);
+    for (const el of data.elements || []) {
+      if (el.type !== 'way' || !Array.isArray(el.geometry) || el.geometry.length < 2) continue;
+      if (seen.has(el.id)) continue;
+      seen.add(el.id);
+      segments.push(el.geometry.map((p) => [p.lon, p.lat]));
+    }
     if (!segments.length) return res.status(404).json({ error: 'Geen geometrie gevonden voor deze route.' });
 
     // Segmenten aaneenrijgen op dichtstbijzijnde eindpunten (OSM-volgorde is grillig).
@@ -207,15 +216,16 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
       if (flip) seg.reverse();
       if (append) chain.push(...seg); else chain.unshift(...seg.reverse());
     }
-    let track = chain.map((p) => [p[0], p[1]]);
+    let track = chain;
     const { simplify } = await import('./geo.js');
     let tol = 0.00005;
     while (track.length > 6000 && tol < 0.01) { track = simplify(track, tol); tol *= 2; }
+    const info = await infoP;
     res.json({
       name: info?.name || `Route ${id}`,
       ref: info?.ref || null,
       track,
-      note: 'Geometrie uit OpenStreetMap (Waymarked Trails); hoogtedata niet inbegrepen.',
+      note: 'Geometrie uit OpenStreetMap (Overpass); hoogtedata niet inbegrepen.',
     });
   } catch {
     res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Probeer opnieuw.' });
