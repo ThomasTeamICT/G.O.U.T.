@@ -187,15 +187,17 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
     let gpxText = '';
     let fileName = '';
 
-    const fileInput = el('input', { type: 'file', accept: '.gpx,application/gpx+xml,application/xml', class: 'input import-file' });
+    const fileInput = el('input', {
+      type: 'file', accept: '.gpx,application/gpx+xml,application/xml',
+      style: 'display:none',
+    });
     const drop = el('label', { class: 'import-drop' },
       svgEl(icons.upload),
       el('div', {}, el('b', {}, 'Kies een GPX-bestand'), ' of sleep het hierheen'),
       fileInput,
     );
 
-    fileInput.addEventListener('change', async () => {
-      const f = fileInput.files?.[0];
+    async function handleFile(f: File | undefined | null) {
       if (!f) return;
       fileName = f.name.replace(/\.gpx$/i, '');
       try {
@@ -205,6 +207,23 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
       } catch (e) {
         toast((e as Error)?.message || 'Kon dit GPX-bestand niet lezen.', 'error');
       }
+    }
+
+    fileInput.addEventListener('change', () => handleFile(fileInput.files?.[0]));
+    drop.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      drop.style.borderColor = 'var(--green)';
+      drop.style.background = 'var(--surface-2)';
+    });
+    drop.addEventListener('dragleave', () => {
+      drop.style.borderColor = '';
+      drop.style.background = '';
+    });
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.style.borderColor = '';
+      drop.style.background = '';
+      handleFile(e.dataTransfer?.files?.[0]);
     });
 
     function renderStart() {
