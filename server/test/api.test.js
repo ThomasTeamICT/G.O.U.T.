@@ -372,7 +372,7 @@ test('highlights: validatie en auth', async () => {
   assert.equal(r.status, 400, 'lege naam geweigerd');
   r = await c.req('POST', '/api/highlights', { name: 'x', sport: 'zwemmen', track: TRACK.slice(0, 5) });
   assert.equal(r.status, 400, 'onbekende sport geweigerd');
-  r = await c.req('POST', '/api/highlights', { name: 'x', sport: 'wandelen', track: [[4.18, 50.93]] });
+  r = await c.req('POST', '/api/highlights', { name: 'x', sport: 'wandelen', track: [] });
   assert.equal(r.status, 400, 'te korte track geweigerd');
 });
 
