@@ -415,28 +415,98 @@ export function planView(
     } catch { /* stil: highlights zijn niet essentieel */ }
   }
 
+  function catLabel(cat: string | null): string | null {
+    switch (cat) {
+      case 'uitzicht': return 'Uitzicht';
+      case 'rustpunt': return 'Rustpunt';
+      case 'horeca': return 'Café/horeca';
+      case 'bezienswaardig': return 'Bezienswaardig';
+      case 'trail': return 'Toffe trail';
+      default: return null;
+    }
+  }
+
   function drawHighlights(list: Highlight[]) {
     if (!hlLayer) return;
     hlLayer.clearLayers();
+    let shown = 0;
     for (const h of list) {
-      if (!h.track || h.track.length < 2) continue;
-      L.polyline(trackToLatLngs(h.track), HL_STYLE).addTo(hlLayer);
-      const mid = h.track[Math.floor(h.track.length / 2)];
-      L.marker([mid[1], mid[0]], { icon: flagIcon }).bindPopup(hlPopup(h)).addTo(hlLayer);
+      if (!h.track || h.track.length < 1) continue;
+      if (h.track.length === 1) {
+        // Punt-highlight (POI): enkel het vlag-markertje op het punt.
+        const p = h.track[0];
+        L.marker([p[1], p[0]], { icon: flagIcon, title: catLabel(h.category) || h.name })
+          .bindPopup(hlPopup(h)).addTo(hlLayer);
+      } else {
+        // Segment: oranje lijn met een vlag op het middelpunt.
+        L.polyline(trackToLatLngs(h.track), HL_STYLE).addTo(hlLayer);
+        const mid = h.track[Math.floor(h.track.length / 2)];
+        L.marker([mid[1], mid[0]], { icon: flagIcon, title: catLabel(h.category) || h.name })
+          .bindPopup(hlPopup(h)).addTo(hlLayer);
+      }
+      shown++;
     }
+    maybeEmptyHint(shown);
+  }
+
+  // Eenmalige hint per sessie wanneer de toggle aan staat maar het gebied leeg is.
+  function maybeEmptyHint(count: number) {
+    if (!hlOn || count > 0) return;
+    let already = false;
+    try { already = sessionStorage.getItem('gout.hlEmptyHint') === '1'; } catch { /* privémodus */ }
+    if (already) return;
+    try { sessionStorage.setItem('gout.hlEmptyHint', '1'); } catch { /* privémodus */ }
+    toast('Nog geen highlights in dit gebied. Markeer er zelf één via een route → Highlight markeren.');
+  }
+
+  // 'Voeg toe aan route': punt-highlight = 1 waypoint, segment = begin/midden/eind (3),
+  // met de richting zo gekozen dat het beginpunt het dichtst bij het huidige route-einde ligt.
+  function addHighlightToRoute(h: Highlight) {
+    if (loadedRoute) { toast('Verlaat eerst de geladen route om highlights toe te voegen.', 'error'); return; }
+    const track = h.track;
+    if (!track || track.length < 1) return;
+    const pts: [number, number][] = [];
+    if (track.length === 1) {
+      pts.push([track[0][0], track[0][1]]);
+    } else {
+      const a = track[0];
+      const b = track[track.length - 1];
+      const mid = track[Math.floor(track.length / 2)];
+      let ordered: TrackPoint[] = [a, mid, b];
+      const end = waypoints.length ? waypoints[waypoints.length - 1] : null;
+      if (end) {
+        const dA = haversine(end.lon, end.lat, a[0], a[1]);
+        const dB = haversine(end.lon, end.lat, b[0], b[1]);
+        if (dB < dA) ordered = [b, mid, a];
+      }
+      for (const p of ordered) pts.push([p[0], p[1]]);
+    }
+    pushUndo(); // één undo-stap voor de hele toevoeging
+    for (const [lon, lat] of pts) {
+      const wp: Waypoint = { lon, lat };
+      if (waypoints.length >= 1 && beelineMode) wp.beeline = true;
+      waypoints.push(wp);
+      if (waypoints.length >= 2) legTracks.push(null);
+    }
+    afterChange();
+    toast('Highlight opgenomen in je route.');
   }
 
   function hlPopup(h: Highlight): HTMLElement {
     const ic = h.sport === 'alle' ? icons.flag : sportIcon(h.sport);
     const lbl = h.sport === 'alle' ? 'Alle sporten' : sportLabel(h.sport);
+    const cat = catLabel(h.category);
     return el('div', { class: 'hl-popup' },
       el('strong', { class: 'hl-pop-name' }, h.name),
+      cat ? el('div', { class: 'hl-pop-cat' }, cat) : null,
       el('div', { class: 'hl-pop-meta' },
         svgEl(ic), el('span', {}, lbl),
         el('span', { class: 'hl-pop-sep' }, '·'),
         el('span', {}, `${h.votes} ${h.votes === 1 ? 'stem' : 'stemmen'}`),
       ),
       h.description ? el('p', { class: 'hl-pop-desc' }, h.description) : null,
+      el('button', { type: 'button', class: 'btn btn-primary btn-sm hl-pop-add',
+        onclick: () => { addHighlightToRoute(h); map.closePopup(); } }, svgEl(icons.plus), 'Voeg toe aan route'),
       h.ownerName ? el('div', { class: 'hl-pop-owner' }, 'door ' + h.ownerName) : null,
     );
   }

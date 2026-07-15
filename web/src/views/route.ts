@@ -527,7 +527,7 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
   L.marker([a[1], a[0]], { icon: waypointIcon('start') }).addTo(liveMap);
   L.marker([b[1], b[0]], { icon: waypointIcon('end') }).addTo(liveMap);
   fitToTrack(liveMap, track);
-  setTimeout(() => liveMap.invalidateSize(), 60);
+  setTimeout(() => { liveMap.invalidateSize(); fitToTrack(liveMap, track); }, 60);
 
   let posMarker: L.Marker | null = null;
   let accCircle: L.Circle | null = null;
