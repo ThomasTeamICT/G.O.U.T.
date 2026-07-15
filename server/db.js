@@ -93,6 +93,7 @@ db.exec(`
     description TEXT NOT NULL DEFAULT '',
     sport       TEXT NOT NULL CHECK (sport IN ('wandelen','fietsen','mtb','alle')),
     track       TEXT NOT NULL,
+    category    TEXT,
     start_lat   REAL,
     start_lon   REAL,
     bbox        TEXT,
@@ -108,3 +109,6 @@ db.exec(`
     PRIMARY KEY (highlight_id, user_id)
   );
 `);
+
+// Migratie voor bestaande databanken: categorie-kolom voor punt-highlights (POI's).
+try { db.exec('ALTER TABLE highlights ADD COLUMN category TEXT'); } catch { /* bestaat al */ }

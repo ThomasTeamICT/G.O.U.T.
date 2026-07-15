@@ -203,3 +203,24 @@ Type: `Highlight` in web/src/types.ts. Sport kan ook `'alle'` zijn.
   knoppenrij (disabled bij <2 punten of al gesloten).
 - **Hint-kaart**: kleiner, onderaan-gecentreerd boven de statsbalk, pointer-events none, en
   verdwijnt automatisch (fade) na 8 s of bij het eerste punt.
+
+## Highlights v2: punt-highlights (POI's) en betere vindbaarheid
+
+- Kolom `highlights.category` (TEXT, nullable). Vaste categorieën:
+  `uitzicht`, `rustpunt`, `horeca`, `bezienswaardig`, `trail` (NL-labels in de UI:
+  Uitzicht, Rustpunt, Café/horeca, Bezienswaardig, Toffe trail). `null` = geen categorie.
+- POST /api/highlights: `track` mag vanaf nu **1** punt bevatten (punt-highlight/POI);
+  `category` optioneel, alleen bovenstaande waarden (anders 400). Serializer geeft `category` terug.
+- UI markeer-flow (route.ts): eerst keuze 'Plek (één klik)' | 'Stuk route (twee klikken)',
+  daarna klik(ken), modal met naam + categorie-select (verplicht bij Plek, optioneel bij Stuk) +
+  sport + beschrijving.
+- Weergave (plan.ts + discover.ts): punt-highlights = marker met categorie-embleem
+  (vlag; title = categorie-label), segmenten = oranje lijn zoals nu; popup toont categorie-label.
+- Lege staat: staat de highlights-toggle aan en zijn er 0 in beeld → eenmalige toast/hintbalk
+  'Nog geen highlights in dit gebied. Markeer er zelf één via een route → Highlight markeren.'
+
+## Ontdek: enkel de beste routes per gebied
+
+- GET /api/discover: default limit **10** (max blijft 100); sortering blijft likes desc, nieuwste.
+- UI: paneltekst boven de resultaten: 'De best gewaardeerde routes in dit gebied'; na
+  plaatsnaam-zoek meteen zoeken (bestond al). Geen andere gedragswijzigingen.

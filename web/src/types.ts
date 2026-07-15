@@ -78,6 +78,7 @@ export interface Highlight {
   name: string;
   description: string;
   sport: Sport | 'alle';
+  category: string | null;
   track: TrackPoint[];
   startLat: number | null;
   startLon: number | null;

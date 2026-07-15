@@ -89,6 +89,7 @@ export function highlightSummary(row, viewerId = null) {
     name: row.name,
     description: row.description,
     sport: row.sport,
+    category: row.category ?? null,
     track: JSON.parse(row.track),
     startLat: row.start_lat,
     startLon: row.start_lon,
