@@ -32,6 +32,7 @@ export interface RouteSummary {
   isOwner: boolean;
   ownerName?: string;
   source: 'gepland' | 'geimporteerd';
+  curated: boolean;
   startLat: number | null;
   startLon: number | null;
   bbox: [number, number, number, number] | null;

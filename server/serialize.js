@@ -36,6 +36,7 @@ export function routeSummary(row, viewerId = null) {
     isOwner: viewerId != null && viewerId === row.user_id,
     ownerName: row.owner_name ?? undefined,
     source: row.source,
+    curated: !!row.curated,
     startLat: row.start_lat,
     startLon: row.start_lon,
     bbox: row.bbox ? JSON.parse(row.bbox) : null,

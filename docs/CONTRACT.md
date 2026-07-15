@@ -259,3 +259,29 @@ In de planner, wanneer een bekende route geladen is ('geladen route'-modus in pl
    bewaard.'. Optie-checkbox 'Ook de volledige route bewaren' (default uit).
    GPX-download per dag gebeurt daarna gewoon vanuit Mijn routes.
 - Alles moet ook goed werken op mobiel (etappepaneel als scrollbare kaart onderaan).
+
+## Bibliotheek: aanbevolen routes per gemeente (batch-oogst)
+
+- Kolommen `routes.curated` (0/1) en `routes.osm_rel_id` (dedupe + latere verversing);
+  serializer geeft `curated: boolean` terug (type RouteSummary).
+- Systeemaccount: e-mail `bibliotheek@gout.be`, naam 'G.O.U.T. Bibliotheek'.
+- Oogst-script `scripts/bibliotheek.js` (draait op de machine van de gebruiker):
+  1. Haalt alle Belgische gemeenten op (Overpass: admin_level=8 in area BE, `out tags center`).
+  2. Haalt landelijk alle route-relaties op per sport (route=hiking|foot en route=mtb,
+     `out tags center`) en wijst elke kandidaat toe aan de dichtstbijzijnde gemeentekern.
+  3. Rangschikt per gemeente en per sport: heeft naam (+2), netwerk lwn/rwn (+1),
+     distance-tag binnen bereik (+1; wandelen 5–25 km, mtb 15–45 km), rondlus (+1 als
+     type toelaat). Neemt kandidaten in volgorde en haalt geometrie op via
+     server/knownroutes.js → fetchKnownRouteGeometry (met schijfcache); verwerpt routes
+     waarvan de werkelijke lengte buiten 4–30 km (wandelen) / 10–50 km (mtb) valt;
+     stopt bij 3 geldige per sport.
+  4. Slaat op als publieke route van het bibliotheekaccount: curated=1, osm_rel_id,
+     name = relatienaam, region = 'Gemeente, België', beschrijving
+     'Bewegwijzerde route uit OpenStreetMap — automatisch opgenomen in de bibliotheek.'
+     Bestaat osm_rel_id al → overslaan (idempotent).
+  5. CLI: `--gemeente "Naam"` (test), `--provincie`-filter via bbox is NIET nodig,
+     `--max N` (max gemeenten deze run), `--droog` (alleen tonen, niets schrijven).
+     Checkpointbestand data/bibliotheek-voortgang.json → hervatten na onderbreking.
+     Beleefdheidspauze ≥1200 ms tussen geometrie-ophalingen; nette voortgangslog.
+- UI: cards in Ontdek (en routedetail-badges) tonen een badge 'Aanbevolen'
+  (badge-public-stijl in accentkleur) wanneer `curated` waar is.

@@ -171,163 +171,22 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
   const site = WMT_SITE[req.query.sport] || 'hiking';
   if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ongeldige route.' });
   try {
-    // Naam via Waymarked Trails (best effort), geometrie via Overpass (OSM zelf):
-    // de relatie + al haar deelrelaties, met weg-geometrie inline.
     const base = WMT_BASE.replace('{site}', site);
     const infoP = wmtFetch(`${base}/api/v1/details/relation/${id}`).catch(() => null);
-
-    // Cache in geheugen ÉN op schijf: één keer gelukt = daarna altijd instant,
-    // ook na een serverherstart. Spaart bovendien de gratis OSM-servers.
-    const cacheKey = `geom:${id}`;
-    const { mkdirSync, readFileSync: rf, writeFileSync: wf, existsSync: ex } = await import('node:fs');
-    const { join: pj } = await import('node:path');
-    const cacheDir = pj(process.env.GOUT_DATA_DIR || pj(PROFILES_DIR, '..', '..', 'data'), 'cache');
-    const cacheFile = pj(cacheDir, `knownroute-${id}.json`);
-    let data;
-    const hit = wmtCache.get(cacheKey);
-    if (hit && Date.now() - hit.t < 24 * 3600_000) {
-      data = hit.data;
-    } else if (ex(cacheFile)) {
-      try { data = JSON.parse(rf(cacheFile, 'utf8')); wmtCache.set(cacheKey, { t: Date.now(), data }); } catch { /* herophalen */ }
-    }
-    if (!data) {
-      // Zelfde zware verzoek niet dubbel laten lopen ('Probeer opnieuw'-klikken).
-      globalThis.__goutInflight ??= new Map();
-      const inflight = globalThis.__goutInflight;
-      if (!inflight.has(cacheKey)) {
-        inflight.set(cacheKey, (async () => {
-          // Gerichte ophaling: relatie + max. 3 niveaus deelrelaties + hun wegen.
-          // Veel lichter dan blinde diepe recursie en zonder losse knooppunten.
-          const query = `[out:json][timeout:90];rel(${id})->.r0;rel(r.r0)->.r1;rel(r.r1)->.r2;(.r0; .r1; .r2;)->.rels;way(r.rels)->.wegen;(.rels; .wegen;);out geom;`;
-          const instanties = [
-            process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter',
-            'https://overpass.kumi.systems/api/interpreter',
-            'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-          ];
-          let saw429 = false;
-          for (const instantie of instanties) {
-            try {
-              const r = await fetch(instantie, {
-                method: 'POST',
-                headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: 'data=' + encodeURIComponent(query),
-                signal: AbortSignal.timeout(100000),
-              });
-              if (r.status === 429) saw429 = true;
-              if (!r.ok) continue;
-              const d = await r.json();
-              if (!d || !Array.isArray(d.elements) || !d.elements.length) continue;
-              return { data: d };
-            } catch { /* volgende instantie */ }
-          }
-          return { saw429 };
-        })().finally(() => setTimeout(() => inflight.delete(cacheKey), 1000)));
-      }
-      const uitkomst = await inflight.get(cacheKey);
-      if (uitkomst.data) {
-        data = uitkomst.data;
-        wmtCache.set(cacheKey, { t: Date.now(), data });
-        try { mkdirSync(cacheDir, { recursive: true }); wf(cacheFile, JSON.stringify(data)); } catch { /* cache is best effort */ }
-      } else {
-        if (uitkomst.saw429)
-          return res.status(429).json({ error: 'De OpenStreetMap-server vraagt even rust (te veel verzoeken kort na elkaar). Wacht een halve minuut en probeer opnieuw.' });
-        return res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Lange routes kunnen druk bezet zijn — probeer het zo opnieuw, of kies een deeltraject (etappe) uit de lijst.' });
-      }
-    }
-
-    // Wegen verzamelen. Bij voorkeur via de relatie-leden zodat we varianten,
-    // zijtakken en aanlooproutes (rol 'alternative', 'excursion', ...) kunnen
-    // overslaan — anders knoopt de aaneenrijger die met luchtlijnen vast.
-    const EXCLUDE_ROLES = new Set(['alternative', 'excursion', 'approach', 'connection', 'shortcut', 'variant', 'detour', 'link']);
-    const seen = new Set();
-    const segments = [];
-    const addWay = (ref, geometry) => {
-      if (!Array.isArray(geometry) || geometry.length < 2) return;
-      if (ref != null && seen.has(ref)) return;
-      if (ref != null) seen.add(ref);
-      segments.push(geometry.map((p) => [p.lon, p.lat]));
-    };
-    let viaRelaties = false;
-    for (const el of data.elements || []) {
-      if (el.type !== 'relation' || !Array.isArray(el.members)) continue;
-      for (const m of el.members) {
-        if (m.type !== 'way' || !m.geometry) continue;
-        if (EXCLUDE_ROLES.has(String(m.role || '').toLowerCase())) continue;
-        addWay(m.ref, m.geometry);
-        viaRelaties = true;
-      }
-    }
-    if (!viaRelaties) {
-      for (const el of data.elements || []) {
-        if (el.type === 'way') addWay(el.id, el.geometry);
-      }
-    }
-    if (!segments.length) return res.status(404).json({ error: 'Geen geometrie gevonden voor deze route.' });
-
-    // Aaneenrijgen tot doorlopende kettingen: alleen verbinden als de einden
-    // écht aansluiten (< 300 m). Losse onderdelen worden aparte kettingen;
-    // we geven het langste doorlopende tracé terug (geen luchtlijnen meer).
-    const { simplify, haversine, trackDistance } = await import('./geo.js');
-    const GAP_M = 300;
-    const dm = (a, b) => haversine(a[0], a[1], b[0], b[1]);
-    const kettingen = [];
-    const pool = segments;
-    while (pool.length) {
-      const chain = pool.shift().slice();
-      let gegroeid = true;
-      while (gegroeid && pool.length) {
-        gegroeid = false;
-        const head = chain[0], tail = chain[chain.length - 1];
-        let best = -1, bestD = Infinity, flip = false, append = true;
-        for (let i = 0; i < pool.length; i++) {
-          const s = pool[i];
-          const opts = [
-            [dm(tail, s[0]), true, false], [dm(tail, s[s.length - 1]), true, true],
-            [dm(head, s[s.length - 1]), false, false], [dm(head, s[0]), false, true],
-          ];
-          for (const [d, app, fl] of opts) {
-            if (d < bestD) { bestD = d; best = i; append = app; flip = fl; }
-          }
-        }
-        if (best >= 0 && bestD <= GAP_M) {
-          const seg = pool.splice(best, 1)[0].slice();
-          if (flip) seg.reverse();
-          if (append) chain.push(...seg); else chain.unshift(...seg);
-          gegroeid = true;
-        }
-      }
-      kettingen.push(chain);
-    }
-    kettingen.sort((x, y) => trackDistance(y) - trackDistance(x));
-
-    // Volwaardige takken (zoals de Chartres- én Orléans-arm van de GR 655)
-    // teruggeven zodat de gebruiker kan kiezen; ruis-fragmentjes blijven weg.
-    const langste = trackDistance(kettingen[0]);
-    const verklein = (t) => {
-      let tol = 0.00005;
-      while (t.length > 6000 && tol < 0.01) { t = simplify(t, tol); tol *= 2; }
-      return t;
-    };
-    const takken = kettingen
-      .filter((k) => {
-        const d = trackDistance(k);
-        return d >= 5000 && d >= 0.25 * langste;
-      })
-      .slice(0, 4)
-      .map((k) => ({ track: verklein(k), distanceM: Math.round(trackDistance(k)) }));
-    const weggelaten = kettingen.length - takken.length;
-    const track = takken[0].track;
+    const { fetchKnownRouteGeometry } = await import('./knownroutes.js');
+    const geom = await fetchKnownRouteGeometry(id);
     const info = await infoP;
     res.json({
       name: info?.name || `Route ${id}`,
       ref: info?.ref || null,
-      track,
-      chains: takken.length > 1 ? takken : undefined,
-      note: weggelaten > 0
-        ? `Hoofdtracé gekozen; ${weggelaten} losse variant(en)/zijtak(ken) weggelaten. Hoogtedata niet inbegrepen.`
+      track: geom.track,
+      chains: geom.chains,
+      note: geom.weggelaten > 0
+        ? `Hoofdtracé gekozen; ${geom.weggelaten} losse variant(en)/zijtak(ken) weggelaten. Hoogtedata niet inbegrepen.`
         : 'Geometrie uit OpenStreetMap (Overpass); hoogtedata niet inbegrepen.',
     });
-  } catch {
-    res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Probeer opnieuw.' });
+  } catch (e) {
+    const status = e?.status || 502;
+    res.status(status).json({ error: e?.message || 'Kon de routegeometrie niet ophalen. Probeer opnieuw.' });
   }
 });

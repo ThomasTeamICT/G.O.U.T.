@@ -53,6 +53,8 @@ db.exec(`
     source       TEXT NOT NULL DEFAULT 'gepland' CHECK (source IN ('gepland','geimporteerd')),
     preview      TEXT,
     gpx          TEXT,
+    curated      INTEGER NOT NULL DEFAULT 0,
+    osm_rel_id   INTEGER,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -112,3 +114,7 @@ db.exec(`
 
 // Migratie voor bestaande databanken: categorie-kolom voor punt-highlights (POI's).
 try { db.exec('ALTER TABLE highlights ADD COLUMN category TEXT'); } catch { /* bestaat al */ }
+
+// Migraties voor bestaande databanken: bibliotheekvelden op routes.
+try { db.exec('ALTER TABLE routes ADD COLUMN curated INTEGER NOT NULL DEFAULT 0'); } catch { /* bestaat al */ }
+try { db.exec('ALTER TABLE routes ADD COLUMN osm_rel_id INTEGER'); } catch { /* bestaat al */ }
