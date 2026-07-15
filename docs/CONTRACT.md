@@ -285,3 +285,10 @@ In de planner, wanneer een bekende route geladen is ('geladen route'-modus in pl
      Beleefdheidspauze ≥1200 ms tussen geometrie-ophalingen; nette voortgangslog.
 - UI: cards in Ontdek (en routedetail-badges) tonen een badge 'Aanbevolen'
   (badge-public-stijl in accentkleur) wanneer `curated` waar is.
+
+## Ideeënlijst (later, na de camino)
+
+- **MapLibre GL JS** i.p.v. Leaflet (zoals Komoot): vectorkaarten, rotatie/3D-reliëf.
+  Aanpak: eerst een adapterlaag rond map.ts zodat views niet rechtstreeks met Leaflet
+  praten, dan pilot op de deelpagina (tegels via OpenFreeMap), pas daarna migreren.
+  Afweging: +polish/performance, -bundelgrootte ×3 en externe vectortegel-afhankelijkheid.
