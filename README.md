@@ -49,6 +49,22 @@ npm test           # integratietests tegen het API-contract
 npm run test:e2e   # Playwright-rooktest (vereist npm run build)
 ```
 
+## Je eigen bibliotheek samenstellen
+
+De waardevolste bibliotheek is handgekozen. Download gratis GPX-bestanden van
+bijvoorbeeld Grote Routepaden, provinciale toerismesites of wandelfederaties,
+zet ze in één map, en importeer ze in één keer als openbare "Aanbevolen"-routes:
+
+```bash
+node scripts/import-map.js ~/Downloads/wandelingen jouw@email.be --sport wandelen
+```
+
+Vlaggen: `--sport wandelen|fietsen|mtb`, `--prive` (niet openbaar), `--gewoon`
+(zonder Aanbevolen-label). Bestanden met dezelfde naam worden overgeslagen, dus
+je kan de map gerust laten groeien en opnieuw importeren. Daarnaast toont
+Ontdek per gebied ook live de officiële bewegwijzerde routes uit OpenStreetMap
+als grondstof voor je selectie.
+
 ## Configuratie (omgevingsvariabelen)
 
 | Variabele | Standaard | Uitleg |
