@@ -53,4 +53,26 @@ for (const v of voorbeelden) {
   console.log(`✔ route: ${v.name}`);
 }
 
+// Voorbeeld-highlights zodat de functie meteen zichtbaar is (rond de demoroutes).
+const hlVoorbeelden = [
+  { name: 'Bankje met uitzicht over de kouters', category: 'uitzicht', sport: 'wandelen',
+    track: [[4.169, 50.942, 45]] },
+  { name: 'Kapelletje van Mazenzele', category: 'bezienswaardig', sport: 'alle',
+    track: [[4.196, 50.928, 38]] },
+  { name: 'Dreef door het Kravaalbos', category: 'trail', sport: 'alle',
+    track: [[4.155, 50.935, 40], [4.158, 50.938, 42], [4.162, 50.940, 44], [4.166, 50.941, 43]] },
+];
+for (const h of hlVoorbeelden) {
+  const bestaat = db.prepare('SELECT id FROM highlights WHERE user_id = ? AND name = ?').get(demoId, h.name);
+  if (bestaat) continue;
+  const lons = h.track.map((p) => p[0]), lats = h.track.map((p) => p[1]);
+  db.prepare(`
+    INSERT INTO highlights (user_id, name, description, sport, track, category, start_lat, start_lon, bbox)
+    VALUES (?, ?, '', ?, ?, ?, ?, ?, ?)
+  `).run(demoId, h.name, h.sport, JSON.stringify(h.track), h.category,
+    h.track[0][1], h.track[0][0],
+    JSON.stringify([Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)]));
+  console.log(`✔ highlight: ${h.name}`);
+}
+
 console.log('Klaar. Demo-account: demo@gout.be / demo1234');

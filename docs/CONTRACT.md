@@ -224,3 +224,15 @@ Type: `Highlight` in web/src/types.ts. Sport kan ook `'alle'` zijn.
 - GET /api/discover: default limit **10** (max blijft 100); sortering blijft likes desc, nieuwste.
 - UI: paneltekst boven de resultaten: 'De best gewaardeerde routes in dit gebied'; na
   plaatsnaam-zoek meteen zoeken (bestond al). Geen andere gedragswijzigingen.
+
+## Highlights v2b: opnemen in je route + schermvullende detailkaart
+
+- Planner-popup van een highlight krijgt een primaire knop **'Voeg toe aan route'**:
+  punt-highlight → dat punt als waypoint (leeg = start, anders achteraan);
+  segment-highlight → begin-, midden- en eindpunt als drie waypoints (richting gekozen
+  op kortste aansluiting bij het huidige route-einde), zodat de routering het stuk volgt.
+  Daarna toast 'Highlight opgenomen in je route.' en normale herberekening + undo.
+- Routedetailpagina: kaart schermvullend (calc(100vh - topbar); mobiel ~85vh),
+  info verschijnt na scrollen; subtiele chevron-knop op de kaart scrolt er naartoe.
+- Seed voorziet enkele openbare voorbeeld-highlights zodat nieuwe installaties de
+  functie meteen zien werken.
