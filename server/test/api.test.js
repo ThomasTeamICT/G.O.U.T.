@@ -41,9 +41,15 @@ for (let i = 0; i <= 40; i++) {
 }
 const TIMED_TRACK = TRACK.map((p, i) => [p[0], p[1], p[2], 1750000000 + i * 60]);
 
+let mockProc;
 before(async () => {
+  mockProc = spawn(process.execPath, ['scripts/mock-brouter.js'], { stdio: 'ignore' });
   proc = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
-    env: { ...process.env, GOUT_DB: ':memory:', PORT: String(PORT) },
+    env: {
+      ...process.env, GOUT_DB: ':memory:', PORT: String(PORT),
+      BROUTER_URL: 'http://localhost:17777',
+      WMT_BASE: 'http://localhost:17777/wmt/{site}',
+    },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   await new Promise((resolve, reject) => {
@@ -54,7 +60,7 @@ before(async () => {
   });
 });
 
-after(() => proc?.kill());
+after(() => { proc?.kill(); mockProc?.kill(); });
 
 test('auth: registreren, me, verkeerd wachtwoord', async () => {
   const c = client();
@@ -249,4 +255,30 @@ test('review-fixes: tijdvalidatie, spaarzame logging, eigen like', async () => {
   await c.req('PUT', `/api/routes/${rid}`, { visibility: 'public' });
   r = await c.req('POST', `/api/routes/${rid}/like`);
   assert.equal(r.status, 400, 'eigen route liken geblokkeerd');
+});
+
+test('bekende routes: zoeken en geometrie aaneenrijgen', async () => {
+  const c = client();
+  await c.req('POST', '/api/auth/register', { email: 'gr@test.be', name: 'GRfan', password: 'wachtwoord1' });
+
+  let r = await c.req('GET', '/api/knownroutes?q=via&sport=wandelen');
+  assert.equal(r.status, 200);
+  assert.ok(r.data.routes.length >= 2, 'zoekresultaten uit WMT');
+  assert.ok(r.data.routes[0].name);
+
+  r = await c.req('GET', '/api/knownroutes/902?sport=wandelen');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.name, 'Via Turonensis (Parijs - Tours)');
+  assert.ok(Array.isArray(r.data.track) && r.data.track.length >= 5, 'aaneengeregen track');
+  // segmenten [4.30..4.20] en [4.20..4.10] moeten één doorlopende ketting vormen
+  const lons = r.data.track.map((p) => p[0]);
+  const sorted = [...lons].sort((a, b) => b - a);
+  assert.deepEqual(lons, sorted, 'kettingvolgorde klopt (aflopende lon)');
+
+  r = await c.req('GET', '/api/knownroutes/abc?sport=wandelen');
+  assert.equal(r.status, 400);
+
+  const anon = client();
+  r = await anon.req('GET', '/api/knownroutes?q=via');
+  assert.equal(r.status, 401, 'auth verplicht');
 });
