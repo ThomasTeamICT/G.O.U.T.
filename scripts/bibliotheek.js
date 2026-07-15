@@ -26,9 +26,15 @@ import { readFileSync as _rf, writeFileSync as _wf, existsSync as _ex, mkdirSync
 const slaap = (ms) => new Promise((r) => setTimeout(r, ms));
 async function metGeduld(naam, fn, pogingen = 5) {
   for (let p = 1; ; p++) {
+    // Hartslag: laat zien dat we bezig zijn (één poging kan tot ±5 min duren
+    // omdat er drie OSM-servers na elkaar geprobeerd worden).
+    const tik = setInterval(() => console.log(`  … ${naam}: nog bezig (poging ${p}/${pogingen}, servers antwoorden traag)`), 45_000);
     try {
-      return await fn();
+      const uit = await fn();
+      clearInterval(tik);
+      return uit;
     } catch (e) {
+      clearInterval(tik);
       const herstelbaar = e?.status === 429 || e?.status === 502;
       if (p >= pogingen || !herstelbaar) throw e;
       const wacht = Math.min(30_000 * 2 ** (p - 1), 240_000);
