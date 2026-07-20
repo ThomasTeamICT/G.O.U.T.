@@ -227,12 +227,16 @@ export function planView(
   const branchChips = el('div', { class: 'plan-branch-chips' });
   const branchBar = el('div', { class: 'plan-branchbar', style: 'display:none' }, branchLabel, branchChips);
 
+  // Dagenlijst bij etappe-markers: 'Dag 1 — 24,3 km · Dag 2 — …' (enkel bij >=1 etappe-marker).
+  const daysBar = el('div', { class: 'plan-days', style: 'display:none' });
+
   const statsCard = el('div', { class: 'card plan-stats' },
     branchBar,
     el('div', { class: 'plan-stats-row' },
       statline,
       el('div', { class: 'plan-stats-actions' }, partBtn, elevChevron, gpxBtn, saveBtn),
     ),
+    daysBar,
     elevBox,
   );
 
@@ -391,7 +395,11 @@ export function planView(
   function onDragEnd(i: number, m: L.Marker) {
     const ll = m.getLatLng();
     pushUndo();
-    waypoints[i] = { lon: ll.lng, lat: ll.lat, beeline: waypoints[i].beeline };
+    const prev = waypoints[i];
+    const wp: Waypoint = { lon: ll.lng, lat: ll.lat };
+    if (prev.beeline) wp.beeline = true;
+    if (prev.etappe) wp.etappe = true;
+    waypoints[i] = wp;
     if (i - 1 >= 0) legTracks[i - 1] = null;
     if (i < waypoints.length - 1) legTracks[i] = null;
     afterChange();
@@ -404,7 +412,11 @@ export function planView(
     const attrs: boolean[] = [];
     for (let k = 1; k < n; k++) attrs.push(!!waypoints[k].beeline);
     attrs.reverse();
-    const newWps: Waypoint[] = waypoints.slice().reverse().map((w) => ({ lon: w.lon, lat: w.lat }));
+    const newWps: Waypoint[] = waypoints.slice().reverse().map((w) => {
+      const o: Waypoint = { lon: w.lon, lat: w.lat };
+      if (w.etappe) o.etappe = true;
+      return o;
+    });
     for (let j = 1; j < n; j++) if (attrs[j - 1]) newWps[j].beeline = true;
     const newLegs: (TrackPoint[] | null)[] = [];
     for (let j = 0; j < n - 1; j++) {
@@ -695,6 +707,94 @@ export function planView(
     return loadedRoute ? etappeTrack() : assembleTrack();
   }
 
+  /* ---- etappe-markers: een gewone via promoveren tot dagetappe-einde ---- */
+  // Indices van de middenwaypoints die als dagetappe-einde zijn gemarkeerd.
+  function etappeIndices(): number[] {
+    const out: number[] = [];
+    for (let i = 1; i < waypoints.length - 1; i++) if (waypoints[i].etappe) out.push(i);
+    return out;
+  }
+
+  // Afstand per dag = som van de leg-afstanden tussen de grenzen; laatste dag tot B.
+  // Een dag met een nog-ladende leg (null) geeft null → '…' in de dagenlijst.
+  function dayDistances(): (number | null)[] {
+    const idx = etappeIndices();
+    if (!idx.length) return [];
+    const bounds = [0, ...idx, waypoints.length - 1];
+    const out: (number | null)[] = [];
+    for (let d = 0; d < bounds.length - 1; d++) {
+      let sum = 0; let loading = false;
+      for (let leg = bounds[d]; leg < bounds[d + 1]; leg++) {
+        const t = legTracks[leg];
+        if (!t || t.length < 2) { loading = true; break; }
+        sum += trackDistance(t);
+      }
+      out.push(loading ? null : sum);
+    }
+    return out;
+  }
+
+  function renderDaysBar() {
+    const dists = dayDistances();
+    if (dists.length < 2) { daysBar.style.display = 'none'; daysBar.replaceChildren(); return; }
+    const parts: Node[] = [];
+    dists.forEach((d, i) => {
+      if (i > 0) parts.push(el('span', { class: 'plan-days-sep' }, '·'));
+      parts.push(el('span', { class: 'plan-day' },
+        el('b', {}, 'Dag ' + (i + 1)), ' — ' + (d === null ? '…' : fmtKm(d))));
+    });
+    daysBar.replaceChildren(...parts);
+    daysBar.style.display = '';
+  }
+
+  // Track van één dag: de samengestelde legs tussen twee waypoint-grenzen.
+  function assembleDayTrack(bStart: number, bEnd: number): TrackPoint[] {
+    const out: TrackPoint[] = [];
+    for (let i = bStart; i < bEnd; i++) {
+      const leg = legTracks[i] || beelineLeg(waypoints[i], waypoints[i + 1]);
+      if (out.length === 0) out.push(...leg);
+      else out.push(...leg.slice(1));
+    }
+    return out;
+  }
+
+  // Opslaan als losse dagroutes: per dag een route '{naam} — dag {i}'.
+  async function saveDayRoutes(baseName: string) {
+    const idx = etappeIndices();
+    const bounds = [0, ...idx, waypoints.length - 1];
+    const n = bounds.length - 1;
+    let saved = 0;
+    let region: string | null = null;
+    try {
+      for (let d = 0; d < n; d++) {
+        const bStart = bounds[d], bEnd = bounds[d + 1];
+        const track = assembleDayTrack(bStart, bEnd);
+        if (track.length < 2) throw new Error('lege dag');
+        // Grenspunt = eindpunt van dag d én startpunt van dag d+1; de etappe-vlag
+        // gaat NIET mee de dagroute in. beeline hoort bij de inkomende leg, dus
+        // die valt weg op het startpunt (k === 0) van elke dagroute.
+        const dayWps = waypoints.slice(bStart, bEnd + 1).map((w, k) => {
+          const o: Waypoint = { lon: w.lon, lat: w.lat };
+          if (k > 0 && w.beeline) o.beeline = true;
+          return o;
+        });
+        if (d === 0) region = await bestRegion(track[0][0], track[0][1]);
+        const suffix = ` — dag ${d + 1}`;
+        const base = baseName.slice(0, Math.max(1, 120 - suffix.length));
+        await api.post<{ route: RouteFull }>('/api/routes', {
+          name: base + suffix, sport, waypoints: dayWps, track, region: d === 0 ? region : null,
+        });
+        saved++;
+      }
+    } catch {
+      toast(`${saved} van ${n} dagroutes bewaard; opslaan is onderweg misgelopen.`, 'error');
+      if (saved > 0) navigate('/routes');
+      return;
+    }
+    toast(`${n} dagroutes bewaard.`);
+    navigate('/routes');
+  }
+
   function updateStats() {
     if (loadedRoute) {
       distV.textContent = fmtKm(trackDistance(etappeTrack()));
@@ -705,6 +805,7 @@ export function planView(
         el('span', { class: 'badge badge-neutral plan-loaded-badge', title: 'Geladen route uit de bibliotheek — bewaar of download' },
           'Geladen: ' + loadedRoute.name + (loadedRoute.ref ? ' · ' + loadedRoute.ref : '') + (subTrack ? ' · deel' : '')),
       );
+      daysBar.style.display = 'none';
       return;
     }
     durV.title = ''; upV.title = ''; downV.title = '';
@@ -718,6 +819,7 @@ export function planView(
     downV.textContent = fmtM(descent);
     diffHolder.replaceChildren();
     if (distM > 0) diffHolder.append(difficultyBadge(difficulty(sport, distM, ascent)));
+    renderDaysBar();
   }
 
   function updateButtons() {
@@ -784,6 +886,38 @@ export function planView(
       queueMicrotask(() => { ignoreNextMapClick = false; });
       insertVia(i, e.latlng.lng, e.latlng.lat);
     });
+  }
+
+  // Etappe-marker: oranje 'mini-eindpunt' met het dagnummer (iets groter dan een via).
+  function etappeIcon(day: number): L.DivIcon {
+    const size = 25;
+    return L.divIcon({
+      className: '',
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+      html: `<div class="wpt-icon wpt-etappe">${day}</div>`,
+    });
+  }
+
+  // Mini-menu op een via-marker: promoveren/degraderen tot dagetappe-einde of wissen.
+  function openViaMenu(i: number, m: L.Marker) {
+    const isEt = !!waypoints[i].etappe;
+    const menu = el('div', { class: 'plan-wpt-menu' },
+      el('button', { type: 'button', class: 'plan-wpt-menu-btn', onclick: () => {
+        map.closePopup();
+        pushUndo();
+        if (isEt) delete waypoints[i].etappe; else waypoints[i].etappe = true;
+        afterChange();
+      } }, svgEl(icons.flag), isEt ? 'Maak gewone tussenstop' : 'Maak einde dagetappe'),
+      el('button', { type: 'button', class: 'plan-wpt-menu-btn plan-wpt-menu-danger', onclick: () => {
+        map.closePopup();
+        removeWaypoint(i);
+      } }, svgEl(icons.trash), 'Verwijder punt'),
+    );
+    L.popup({ closeButton: false, className: 'plan-wpt-popup', offset: [0, -6] })
+      .setLatLng(m.getLatLng())
+      .setContent(menu)
+      .openOn(map);
   }
 
   function redraw() {
@@ -870,18 +1004,27 @@ export function planView(
     }
 
     let viaN = 0;
+    let dayN = 0;
     for (let i = 0; i < n; i++) {
-      const kind: 'start' | 'end' | 'via' = i === 0 ? 'start' : i === n - 1 ? 'end' : 'via';
-      const label = kind === 'via' ? String(++viaN) : '';
+      const isStart = i === 0;
+      const isEnd = i === n - 1;
+      const isEtappe = !isStart && !isEnd && !!waypoints[i].etappe;
+      let icon: L.DivIcon;
+      if (isStart) icon = waypointIcon('start');
+      else if (isEnd) icon = waypointIcon('end');
+      else if (isEtappe) icon = etappeIcon(++dayN);
+      else icon = waypointIcon('via', String(++viaN));
       const center: L.LatLngExpression = [waypoints[i].lat, waypoints[i].lon];
-      const m = L.marker(center, { icon: waypointIcon(kind, label), draggable: true, autoPan: true });
+      const m = L.marker(center, { icon, draggable: true, autoPan: true });
       m.on('dragend', () => onDragEnd(i, m));
       m.on('click', () => {
         ignoreNextMapClick = true;
         queueMicrotask(() => { ignoreNextMapClick = false; });
         // Klik op de START met >=2 punten sluit de lus; enkel bij exact 1 punt
         // verwijdert een klik het startpunt nog.
-        if (i === 0 && waypoints.length >= 2) { closeLoop(false); return; }
+        if (isStart && waypoints.length >= 2) { closeLoop(false); return; }
+        // Via's (gewoon of etappe) openen een mini-menu i.p.v. meteen te wissen.
+        if (!isStart && !isEnd) { openViaMenu(i, m); return; }
         removeWaypoint(i);
       });
       m.addTo(markerLayer);
@@ -1379,6 +1522,10 @@ export function planView(
   function openSaveModal() {
     if (currentTrack().length < 2) { toast('Voeg minstens twee punten toe.', 'error'); return; }
 
+    // Bij >=1 etappe-marker (gewone waypoint-route) mag je als losse dagroutes bewaren.
+    const dayCount = loadedRoute ? 1 : etappeIndices().length + 1;
+    const hasEtappes = dayCount >= 2;
+
     const nameInput = el('input', { class: 'input', type: 'text', maxlength: '120', value: editMeta.name, placeholder: 'bv. Ronde van het Hallerbos' });
     const descInput = el('textarea', { class: 'input', maxlength: '2000', placeholder: 'Optioneel: wat maakt deze route bijzonder?' });
     descInput.value = editMeta.description;
@@ -1387,6 +1534,16 @@ export function planView(
       el('option', { value: 'public' }, 'Openbaar — zichtbaar in Ontdek'),
     );
     visSelect.value = editMeta.visibility;
+
+    // Keuze bij etappe-markers: als één route of als losse dagroutes bewaren.
+    const radioOne = el('input', { type: 'radio', name: 'gout-savemode', checked: true }) as HTMLInputElement;
+    const radioDays = el('input', { type: 'radio', name: 'gout-savemode' }) as HTMLInputElement;
+    const modeField = hasEtappes ? el('div', { class: 'field plan-savemode' },
+      el('span', {}, 'Hoe wil je bewaren?'),
+      el('label', { class: 'plan-savemode-opt' }, radioOne, el('span', {}, 'Als één route bewaren')),
+      el('label', { class: 'plan-savemode-opt' }, radioDays, el('span', {}, `Als ${dayCount} dagroutes bewaren`)),
+    ) : null;
+
     const errP = el('p', { style: 'color:var(--danger);font-weight:600;min-height:1.2em;margin:.2rem 0 0;font-size:.85rem' });
     const submitBtn = el('button', { type: 'button', class: 'btn btn-primary' }, editId ? 'Opslaan' : 'Route opslaan');
 
@@ -1396,6 +1553,7 @@ export function planView(
       el('label', { class: 'field' }, el('span', {}, 'Naam'), nameInput),
       el('label', { class: 'field' }, el('span', {}, 'Beschrijving'), descInput),
       el('label', { class: 'field' }, el('span', {}, 'Zichtbaarheid'), visSelect),
+      modeField,
       errP,
       el('div', { class: 'modal-actions' },
         el('button', { type: 'button', class: 'btn', onclick: () => close() }, 'Annuleren'),
@@ -1408,11 +1566,23 @@ export function planView(
     submitBtn.addEventListener('click', async () => {
       const name = nameInput.value.trim();
       if (!name) { errP.textContent = 'Geef je route een naam.'; nameInput.focus(); return; }
+      if (hasEtappes && radioDays.checked) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Bezig…';
+        close();
+        await saveDayRoutes(name);
+        return;
+      }
       submitBtn.disabled = true;
       submitBtn.textContent = 'Bezig…';
       try {
         const track = currentTrack();
-        const wps = loadedRoute ? null : waypoints.map((w) => (w.beeline ? { lon: w.lon, lat: w.lat, beeline: true } : { lon: w.lon, lat: w.lat }));
+        const wps = loadedRoute ? null : waypoints.map((w) => {
+          const o: Waypoint = { lon: w.lon, lat: w.lat };
+          if (w.beeline) o.beeline = true;
+          if (w.etappe) o.etappe = true;
+          return o;
+        });
         const startLat = loadedRoute ? track[0][1] : waypoints[0].lat;
         const startLon = loadedRoute ? track[0][0] : waypoints[0].lon;
         let region: string | null = null;
@@ -1471,7 +1641,12 @@ export function planView(
       for (const [k, b] of sportBtns) b.classList.toggle('active', k === sport);
 
       if (route.waypoints && route.waypoints.length >= 2) {
-        waypoints = route.waypoints.map((w) => (w.beeline ? { lon: w.lon, lat: w.lat, beeline: true } : { lon: w.lon, lat: w.lat }));
+        waypoints = route.waypoints.map((w) => {
+          const o: Waypoint = { lon: w.lon, lat: w.lat };
+          if (w.beeline) o.beeline = true;
+          if (w.etappe) o.etappe = true;
+          return o;
+        });
         legTracks = new Array(waypoints.length - 1).fill(null);
       } else {
         toast('Deze route is geïmporteerd; we zetten ze om naar bewerkbare punten.');

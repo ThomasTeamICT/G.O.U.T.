@@ -289,3 +289,39 @@
   }
   .plan-part-btn { padding: .4rem .55rem; }
 }
+
+/* ---------- etappe-markers (dagetappe-einde op een gewone via) ---------- */
+/* Oranje 'mini-eindpunt' met het dagnummer; hergebruikt de .wpt-icon-basis. */
+.wpt-etappe { background: var(--accent); font-size: .72rem; }
+
+/* mini-menu op een via-marker (Leaflet-popup) */
+.plan-wpt-popup .leaflet-popup-content { margin: 6px 8px; }
+.plan-wpt-popup .leaflet-popup-content-wrapper { border-radius: var(--radius-s); }
+.plan-wpt-menu { display: flex; flex-direction: column; min-width: 176px; }
+.plan-wpt-menu-btn {
+  display: flex; align-items: center; gap: .5rem; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer;
+  font: 600 .9rem var(--font); color: var(--ink); padding: .55rem .6rem; border-radius: 7px;
+}
+.plan-wpt-menu-btn:hover { background: var(--surface-2); }
+.plan-wpt-menu-btn svg { width: 17px; height: 17px; color: var(--muted); flex: none; }
+.plan-wpt-menu-danger { color: var(--danger); }
+.plan-wpt-menu-danger svg { color: var(--danger); }
+
+/* dagenlijst in de statsbalk: 'Dag 1 — 24,3 km · Dag 2 — …' */
+.plan-days {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .5rem;
+  margin-top: .55rem; padding-top: .5rem; border-top: 1px solid var(--line);
+  font-size: .82rem; color: var(--ink-soft);
+}
+.plan-day { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.plan-day b { color: var(--ink); font-weight: 700; }
+.plan-days-sep { color: var(--line); }
+
+/* opslaan-modal: keuze één route vs. losse dagroutes */
+.plan-savemode { gap: .25rem; }
+.plan-savemode-opt {
+  display: flex; align-items: center; gap: .5rem; cursor: pointer;
+  font-weight: 600; color: var(--ink); padding: .15rem 0;
+}
+.plan-savemode-opt input { width: 16px; height: 16px; accent-color: var(--accent); flex: none; }
