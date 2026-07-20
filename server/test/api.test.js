@@ -608,15 +608,15 @@ test('aanbevolen: nabijheid weegt mee bij zoeken op een dorp', async () => {
   const c = client();
   await c.req('POST', '/api/auth/register', { email: 'dorp@test.be', name: 'Dorpszoeker', password: 'wachtwoord1' });
 
-  // Zonder centrum wint de hoogste score (Kravaalbos-lus, score 5).
+  // Zonder centrum wint bij gelijke score de langste (Dendervallei, 20 km).
   let r = await c.req('GET', '/api/discover/aanbevolen?bbox=3.9,50.8,4.3,51.0&sport=wandelen');
   assert.equal(r.status, 200);
-  assert.equal(r.data.aanbevolen.wandelen[0].name, 'Kravaalbos-lus');
+  assert.equal(r.data.aanbevolen.wandelen[0].name, 'Dendervallei-voetpad');
 
-  // Met centrum bij het Dendervallei-voetpad (4.05, 50.94) wint nabijheid.
-  r = await c.req('GET', '/api/discover/aanbevolen?bbox=3.9,50.8,4.3,51.0&sport=wandelen&center=4.05,50.94');
+  // Met centrum bij de Kravaalbos-lus (4.18, 50.93) wint nabijheid.
+  r = await c.req('GET', '/api/discover/aanbevolen?bbox=3.9,50.8,4.3,51.0&sport=wandelen&center=4.18,50.93');
   assert.equal(r.status, 200);
-  assert.equal(r.data.aanbevolen.wandelen[0].name, 'Dendervallei-voetpad', 'dichtstbijzijnde relevante route eerst');
+  assert.equal(r.data.aanbevolen.wandelen[0].name, 'Kravaalbos-lus', 'dichtstbijzijnde relevante route eerst');
   assert.ok(r.data.aanbevolen.wandelen[0].vanCentrumKm < 2, 'afstand tot centrum meegegeven');
   assert.ok(r.data.aanbevolen.wandelen[1].vanCentrumKm > r.data.aanbevolen.wandelen[0].vanCentrumKm);
 });
