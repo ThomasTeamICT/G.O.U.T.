@@ -350,26 +350,55 @@ export function discoverView(container: HTMLElement): () => void {
   }
 
   // Eén aanbeveling laden: geometrie ophalen, tekenen en paneel tonen.
+  // Eén geometrie-lading tegelijk: nieuwe klik annuleert de vorige, en op een
+  // draaiende kaart nogmaals klikken = stoppen (grote GR's kunnen even duren).
+  let recAbort: AbortController | null = null;
+  let recCleanup: (() => void) | null = null;
+
   async function loadRec(rec: RecItem, card: HTMLElement) {
-    if (card.classList.contains('loading')) return;
+    if (card.classList.contains('loading')) { recAbort?.abort(); return; }
+    recAbort?.abort();
+    recCleanup?.();
+    const abort = new AbortController();
+    recAbort = abort;
+
     card.classList.add('loading');
     const vorigeTitel = card.title;
-    card.title = 'Even geduld…';
+    card.title = 'Even geduld… (nogmaals klikken = stoppen)';
     const spin = el('span', { class: 'rec-spin' });
     card.append(spin);
-    try {
-      const params = new URLSearchParams();
-      if (rec.sport) params.set('sport', rec.sport);
-      const data = await api.get<KnownRoute>(`/api/knownroutes/${rec.id}?${params}`);
-      if (destroyed) return;
-      showRec(rec, data);
-    } catch (e) {
-      // 429-boodschap van de server (Overpass vraagt rust) tonen zoals hij is.
-      toast(e instanceof ApiError ? e.message : 'Kon de bewegwijzerde route niet laden.', 'error');
-    } finally {
+    const hint = el('span', { class: 'rec-dist' }, '');
+    card.append(hint);
+    const hintTimer = setTimeout(() => {
+      hint.textContent = 'grote route — nog even bezig…';
+    }, 15000);
+
+    recCleanup = () => {
+      clearTimeout(hintTimer);
       card.classList.remove('loading');
       card.title = vorigeTitel;
       spin.remove();
+      hint.remove();
+    };
+
+    try {
+      const params = new URLSearchParams();
+      if (rec.sport) params.set('sport', rec.sport);
+      const r = await fetch(`/api/knownroutes/${rec.id}?${params}`, { signal: abort.signal });
+      if (destroyed || abort.signal.aborted) return;
+      const data = await r.json().catch(() => null);
+      if (!r.ok || !data) {
+        toast(data?.error || 'Kon de bewegwijzerde route niet laden.', 'error');
+        return;
+      }
+      showRec(rec, data as KnownRoute);
+    } catch (e) {
+      if ((e as Error)?.name === 'AbortError') return; // bewust geannuleerd
+      toast('Kon de bewegwijzerde route niet laden.', 'error');
+    } finally {
+      if (recAbort === abort) recAbort = null;
+      recCleanup?.();
+      recCleanup = null;
     }
   }
 
