@@ -299,8 +299,31 @@ export function planView(
       if (!ok) return;
       exitLoadedMode();
     }
+    // Bewerken i.p.v. bouwen: klik je vlakbij de bestaande route (< 1 km),
+    // dan bedoel je vrijwel zeker een TUSSENSTOP — niet een nieuw eindpunt.
+    // Shift+klik forceert altijd een nieuw eindpunt.
+    if (waypoints.length >= 2 && !e.originalEvent.shiftKey) {
+      const buurt = dichtsteLeg(e.latlng.lng, e.latlng.lat);
+      if (buurt && buurt.distM < 1000) {
+        insertVia(buurt.leg, e.latlng.lng, e.latlng.lat);
+        toast('Tussenstop toegevoegd. (Shift+klik = nieuw eindpunt)');
+        return;
+      }
+    }
     addPoint(e.latlng.lng, e.latlng.lat);
   });
+
+  // Dichtstbijzijnde leg (berekend spoor) bij een kaartpunt.
+  function dichtsteLeg(lon: number, lat: number): { leg: number; distM: number } | null {
+    let best: { leg: number; distM: number } | null = null;
+    for (let i = 0; i < legTracks.length; i++) {
+      const t = legTracks[i];
+      if (!t || t.length < 2) continue;
+      const { distM } = nearestPointIndex(t, lon, lat);
+      if (!best || distM < best.distM) best = { leg: i, distM };
+    }
+    return best;
+  }
 
   setTimeout(() => map.invalidateSize(), 0);
 
