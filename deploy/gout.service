@@ -1,0 +1,18 @@
+# systemd-service voor G.O.U.T. op een VPS (Ubuntu/Debian).
+# Installeren:  sudo cp deploy/gout.service /etc/systemd/system/
+#               sudo systemctl enable --now gout
+# Logs:         journalctl -u gout -f
+[Unit]
+Description=G.O.U.T. routeplanner
+After=network.target
+
+[Service]
+Type=simple
+User=gout
+WorkingDirectory=/home/gout/gout
+ExecStart=/usr/bin/node --no-warnings server/index.js
+Restart=on-failure
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,5 @@
+# Caddy als HTTPS-voordeur voor G.O.U.T. — automatische certificaten, klaar in 2 regels.
+# Vervang het domein en draai: caddy run --config Caddyfile
+gout.jouwdomein.be {
+	reverse_proxy localhost:3000
+}
