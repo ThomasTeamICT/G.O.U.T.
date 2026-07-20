@@ -59,6 +59,7 @@ function sanitizeWaypoints(waypoints) {
       return { error: 'Waypoint-coördinaten buiten bereik.' };
     const o = { lon, lat };
     if (beeline === true) o.beeline = true;
+    if (w.etappe === true) o.etappe = true;
     out.push(o);
   }
   return { value: JSON.stringify(out) };

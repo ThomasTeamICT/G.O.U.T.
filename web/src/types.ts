@@ -13,7 +13,7 @@ export interface User {
 // Track-punt: [lon, lat, ele?, epochSeconden?]
 export type TrackPoint = [number, number, number?, number?];
 // Waypoint van de planner: beeline = hemelsbreed segment NAAR dit punt.
-export interface Waypoint { lon: number; lat: number; beeline?: boolean }
+export interface Waypoint { lon: number; lat: number; beeline?: boolean; etappe?: boolean }
 
 export interface RouteSummary {
   id: number;

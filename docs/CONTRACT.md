@@ -292,3 +292,23 @@ In de planner, wanneer een bekende route geladen is ('geladen route'-modus in pl
   Aanpak: eerst een adapterlaag rond map.ts zodat views niet rechtstreeks met Leaflet
   praten, dan pilot op de deelpagina (tegels via OpenFreeMap), pas daarna migreren.
   Afweging: +polish/performance, -bundelgrootte ×3 en externe vectortegel-afhankelijkheid.
+
+## Etappe-markers in de planner ("speciale tussenstops")
+
+- `Waypoint` heeft een optionele vlag `etappe: true` = dit punt is het EINDE van een
+  dagetappe. Vlag reist mee in de waypoints-JSON (server laat hem door) en blijft dus
+  bewaard bij opslaan/herbewerken.
+- UX (plan.ts): klik op een via-marker opent een mini-menu (Leaflet-popup):
+  'Maak einde dagetappe' | 'Verwijder punt' (bij een etappe-marker: 'Maak gewone
+  tussenstop' | 'Verwijder punt'). Directe delete-bij-klik vervalt dus voor via's;
+  start-klik (lus sluiten) en eindmarker-gedrag blijven zoals ze zijn.
+- Weergave: etappe-markers ogen als mini-eindpunten (oranje, iets groter) met het
+  DAGnummer (1, 2, ...); gewone via's blijven zwart genummerd. De statsbalk toont bij
+  ≥1 etappe-marker een compacte dagenlijst: 'Dag 1 — 24,3 km · Dag 2 — 26,1 km · …'
+  (afstand = som van de leg-afstanden tussen de grenzen; laatste dag loopt tot B).
+- Opslaan-modal: staat er ≥1 etappe-marker, dan verschijnt een keuze:
+  'Bewaar als één route' (standaard; vlaggen blijven in de waypoints) of
+  'Bewaar als {N} dagroutes' → per dag een route '{naam} — dag {i}' met de
+  samengestelde track van die dag en de bijhorende waypoints (grenspunt telt als
+  eindpunt van dag i en startpunt van dag i+1). Undo-systeem dekt het promoveren/
+  degraderen van markers (pushUndo).
