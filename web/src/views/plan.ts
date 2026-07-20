@@ -448,6 +448,43 @@ export function planView(
     toast('Lus gesloten.');
   }
 
+  // Startpunt verplaatsen binnen een gesloten lus: waypoint i wordt de nieuwe A
+  // en (via een kopie) meteen ook de nieuwe B; alle andere punten schuiven mee.
+  // Zuivere rotatie: de legs draaien mee, er hoeft niets herberekend te worden.
+  function makeStart(i: number) {
+    const n = waypoints.length;
+    if (i <= 0 || i >= n - 1) return;
+    if (!loopClosed()) {
+      toast('Dit kan enkel bij een gesloten lus. Klik eerst op je startpunt om de lus te sluiten.');
+      return;
+    }
+    pushUndo();
+    const cyclus = waypoints.slice(0, n - 1); // zonder de sluitende B (≈ de start)
+    const oudeA = waypoints[0];
+    const oudeB = waypoints[n - 1];
+    const nieuweWps: Waypoint[] = [...cyclus.slice(i), ...cyclus.slice(0, i)].map((w) => ({ ...w }));
+    // De nieuwe start heeft geen inkomende leg en is per definitie geen etappe-einde.
+    delete nieuweWps[0].beeline;
+    delete nieuweWps[0].etappe;
+    // De oude A staat nu middenin; haar inkomende leg is de oude sluitleg,
+    // waarvan de hemelsbreed-vlag op de oude B stond.
+    const oudeAIdx = cyclus.length - i;
+    if (oudeB.beeline) nieuweWps[oudeAIdx].beeline = true;
+    else delete nieuweWps[oudeAIdx].beeline;
+    const nieuweB: Waypoint = { lon: waypoints[i].lon, lat: waypoints[i].lat };
+    if (waypoints[i].beeline) nieuweB.beeline = true;
+    nieuweWps.push(nieuweB);
+    // Legs in dezelfde cyclusvolgorde meedraaien.
+    const nieuweLegs = [...legTracks.slice(i), ...legTracks.slice(0, i)];
+    // Was de lus niet op de millimeter gesloten, herbereken dan de oude sluitleg
+    // (die eindigde op de oude B, niet exact op de oude A die er nu volgt).
+    if (haversine(oudeA.lon, oudeA.lat, oudeB.lon, oudeB.lat) > 1) nieuweLegs[oudeAIdx - 1] = null;
+    waypoints = nieuweWps;
+    legTracks = nieuweLegs;
+    afterChange();
+    toast('Startpunt verplaatst — de lus vertrekt en eindigt nu hier.');
+  }
+
   function setSport(s: Sport) {
     if (s === sport) return;
     sport = s;
@@ -909,6 +946,10 @@ export function planView(
         if (isEt) delete waypoints[i].etappe; else waypoints[i].etappe = true;
         afterChange();
       } }, svgEl(icons.flag), isEt ? 'Maak gewone tussenstop' : 'Maak einde dagetappe'),
+      el('button', { type: 'button', class: 'plan-wpt-menu-btn', onclick: () => {
+        map.closePopup();
+        makeStart(i);
+      } }, svgEl(icons.play), 'Maak dit het startpunt'),
       el('button', { type: 'button', class: 'plan-wpt-menu-btn plan-wpt-menu-danger', onclick: () => {
         map.closePopup();
         removeWaypoint(i);

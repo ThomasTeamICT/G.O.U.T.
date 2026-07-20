@@ -299,9 +299,16 @@ In de planner, wanneer een bekende route geladen is ('geladen route'-modus in pl
   dagetappe. Vlag reist mee in de waypoints-JSON (server laat hem door) en blijft dus
   bewaard bij opslaan/herbewerken.
 - UX (plan.ts): klik op een via-marker opent een mini-menu (Leaflet-popup):
-  'Maak einde dagetappe' | 'Verwijder punt' (bij een etappe-marker: 'Maak gewone
-  tussenstop' | 'Verwijder punt'). Directe delete-bij-klik vervalt dus voor via's;
-  start-klik (lus sluiten) en eindmarker-gedrag blijven zoals ze zijn.
+  'Maak einde dagetappe' | 'Maak dit het startpunt' | 'Verwijder punt' (bij een
+  etappe-marker: 'Maak gewone tussenstop' i.p.v. de eerste). Directe delete-bij-klik
+  vervalt dus voor via's; start-klik (lus sluiten) en eindmarker-gedrag blijven zoals
+  ze zijn.
+- 'Maak dit het startpunt' werkt enkel bij een GESLOTEN lus (A≈B binnen 30 m, zie
+  loopClosed): de waypoints en legs roteren zodat het gekozen punt de nieuwe A én
+  (als kopie) de nieuwe B wordt; de overige punten schuiven logisch mee, zonder
+  herberekening. Beeline-vlaggen verhuizen mee met hun leg; de nieuwe start verliest
+  een eventuele etappe-vlag. Bij een open route legt een toast uit dat je eerst de
+  lus moet sluiten.
 - Weergave: etappe-markers ogen als mini-eindpunten (oranje, iets groter) met het
   DAGnummer (1, 2, ...); gewone via's blijven zwart genummerd. De statsbalk toont bij
   ≥1 etappe-marker een compacte dagenlijst: 'Dag 1 — 24,3 km · Dag 2 — 26,1 km · …'
