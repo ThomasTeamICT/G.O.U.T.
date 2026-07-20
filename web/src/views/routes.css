@@ -104,7 +104,9 @@ body.live-open .more-fab, body.live-open .back-fab { display: none; }
 /* De Leaflet-controls (lagen/zoom/attributie) van de onderliggende detailkaart
    niet door de live-overlay laten prikken. */
 body.live-open .route-detail-map .leaflet-control-container { display: none; }
-.live-map { position: absolute; inset: 0; }
+/* z-index: 0 isoleert de Leaflet-panes (z 200-700) in hun eigen stacking context;
+   anders schilderen de kaarttegels over het paneel en de Opnemen-knop heen. */
+.live-map { position: absolute; inset: 0; z-index: 0; }
 .live-top {
   position: absolute; top: 0; left: 0; right: 0; z-index: 20;
   display: flex; justify-content: space-between; align-items: flex-start;
