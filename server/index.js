@@ -1,4 +1,5 @@
 import express from 'express';
+import { gzipSync } from 'node:zlib';
 import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +23,23 @@ app.use((_req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '25mb' }));
+
+// Gzip voor JSON-antwoorden (tracks van lange routes zijn honderden kB's):
+// scheelt ~80% over trage verbindingen. zlib zit ingebouwd — geen dependency.
+app.use((req, res, next) => {
+  const accepteert = String(req.headers['accept-encoding'] || '').includes('gzip');
+  if (!accepteert) return next();
+  const origJson = res.json.bind(res);
+  res.json = (body) => {
+    const tekst = JSON.stringify(body);
+    if (tekst.length < 1024) return origJson(body);
+    res.setHeader('Content-Encoding', 'gzip');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Vary', 'Accept-Encoding');
+    return res.send(gzipSync(Buffer.from(tekst)));
+  };
+  next();
+});
 app.use(sessionMiddleware);
 
 app.use('/api/auth', authRouter);
@@ -38,7 +56,16 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Onbekend endpoint'
 // Productie: gebouwde frontend serveren.
 const dist = join(__dirname, '..', 'web', 'dist');
 if (existsSync(dist)) {
-  app.use(express.static(dist, { maxAge: '1h', index: 'index.html' }));
+  app.use(express.static(dist, {
+    index: 'index.html',
+    setHeaders(res, pad) {
+      if (/[\\/]assets[\\/]/.test(pad)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        res.setHeader('Cache-Control', 'no-cache'); // index.html: altijd even checken
+      }
+    },
+  }));
   app.get('*', (_req, res) => res.sendFile(join(dist, 'index.html')));
 }
 

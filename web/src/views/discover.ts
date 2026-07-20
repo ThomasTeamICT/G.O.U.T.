@@ -207,7 +207,7 @@ export function discoverView(container: HTMLElement): () => void {
     for (const r of routes) for (const [lon, lat] of r.preview || []) pts.push([lat, lon]);
     if (!pts.length) return;
     suppressMove = true;
-    map.fitBounds(L.latLngBounds(pts).pad(0.15));
+    map.fitBounds(L.latLngBounds(pts).pad(0.15), { animate: false });
   }
 
   // --- resultaatweergave ---
@@ -689,6 +689,7 @@ export function discoverView(container: HTMLElement): () => void {
     destroyed = true;
     document.removeEventListener('mousedown', onOutside);
     clearRec();
+    map.stop(); // lopende pan/zoom-animatie stoppen voor remove (anders _leaflet_pos-fout)
     map.remove();
   };
 }
