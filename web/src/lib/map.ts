@@ -56,17 +56,41 @@ export function trackToLatLngs(track: TrackPoint[]): L.LatLngExpression[] {
   return track.map((p) => [p[1], p[0]] as [number, number]);
 }
 
+// Voor de WEERGAVE volstaat een uitgedund spoor. Een camino van tienduizenden
+// punten projecteert Leaflet bij élke pan/zoom opnieuw; dat blokkeert de main
+// thread en maakt schermwissels stroef. We tekenen daarom hoogstens MAX_DISPLAY
+// punten (begin- en eindpunt blijven behouden). De data zelf (route.track voor
+// stats, GPX, hoogteprofiel-hover, live-voortgang) blijft volledig ongemoeid —
+// dit is puur cosmetisch, net als de MAX_DRAW-uitdunning in het hoogteprofiel.
+const MAX_DISPLAY = 3000;
+export function displayLatLngs(track: TrackPoint[]): L.LatLngExpression[] {
+  if (track.length <= MAX_DISPLAY) return trackToLatLngs(track);
+  const out: L.LatLngExpression[] = new Array(MAX_DISPLAY);
+  const step = (track.length - 1) / (MAX_DISPLAY - 1);
+  for (let i = 0; i < MAX_DISPLAY; i++) {
+    const idx = i === MAX_DISPLAY - 1 ? track.length - 1 : Math.round(i * step);
+    out[i] = [track[idx][1], track[idx][0]] as [number, number];
+  }
+  return out;
+}
+
 export function fitToTrack(map: L.Map, track: TrackPoint[], pad = 0.12) {
   if (track.length < 2) return;
   const b = L.latLngBounds(trackToLatLngs(track) as [number, number][]);
-  map.fitBounds(b.pad(pad));
+  // Zonder animatie: de kaart staat meteen goed (geen inzoom-vlucht bij elke
+  // detailopening) en er loopt geen animatie meer die botst met map.remove()
+  // bij een snelle schermwissel (de '_leaflet_pos'-fout). Zelfde keuze als in Ontdek.
+  map.fitBounds(b.pad(pad), { animate: false });
 }
 
 // Route tekenen met witte 'casing' eronder voor leesbaarheid op elke kaart.
+// Uitgedund voor de weergave (zie displayLatLngs) zodat grote sporen vlot
+// tekenen én pannen.
 export function drawTrack(map: L.Map, track: TrackPoint[]): L.LayerGroup {
+  const latlngs = displayLatLngs(track);
   const group = L.layerGroup();
-  L.polyline(trackToLatLngs(track), ROUTE_CASING).addTo(group);
-  L.polyline(trackToLatLngs(track), ROUTE_STYLE).addTo(group);
+  L.polyline(latlngs, ROUTE_CASING).addTo(group);
+  L.polyline(latlngs, ROUTE_STYLE).addTo(group);
   group.addTo(map);
   return group;
 }
