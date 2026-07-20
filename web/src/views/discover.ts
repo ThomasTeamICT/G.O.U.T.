@@ -388,6 +388,7 @@ export function discoverView(container: HTMLElement): () => void {
       const r = await fetch(`/api/knownroutes/${rec.id}?${params}`, { signal: abort.signal });
       if (destroyed || abort.signal.aborted) return;
       const data = await r.json().catch(() => null);
+      if (destroyed || abort.signal.aborted) return; // weggenavigeerd tijdens json()
       if (!r.ok || !data) {
         toast(data?.error || 'Kon de bewegwijzerde route niet laden.', 'error');
         return;
@@ -691,6 +692,7 @@ export function discoverView(container: HTMLElement): () => void {
   // --- opruimen ---
   return () => {
     destroyed = true;
+    recAbort?.abort(); // lopende geometrie-fetch stoppen bij vertrek
     document.removeEventListener('mousedown', onOutside);
     clearRec();
     map.stop(); // lopende pan/zoom-animatie stoppen voor remove (anders _leaflet_pos-fout)

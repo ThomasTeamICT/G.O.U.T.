@@ -16,6 +16,16 @@ export function activitiesView(container: HTMLElement) {
   let all: ActivitySummary[] = [];
   let sport: '' | Sport = '';
 
+  // Gefaseerd renderen + tonen/verbergen bij filteren (geen herbouw per klik).
+  let cards: { a: ActivitySummary; node: HTMLElement }[] = [];
+  let rafId = 0;
+  let destroyed = false;
+
+  const grid = el('div', { class: 'grid-list' });
+  const noResultsP = el('p', {}, 'Geen activiteiten voor deze sport.');
+  const noResults = el('div', { class: 'empty' }, svgEl(icons.search), noResultsP);
+  noResults.style.display = 'none';
+
   const root = el('main', { class: 'page' });
   container.append(root);
 
@@ -34,7 +44,7 @@ export function activitiesView(container: HTMLElement) {
     for (const o of opts) {
       chipbar.append(el('button', {
         class: `chip${sport === o.key ? ' active' : ''}`,
-        onclick: () => { sport = o.key; renderChips(); renderList(); },
+        onclick: () => { sport = o.key; renderChips(); applyFilter(); },
       }, o.key ? svgEl(sportIcon(o.key as Sport)) : null, o.label));
     }
   }
@@ -85,7 +95,7 @@ export function activitiesView(container: HTMLElement) {
         try {
           await api.del(`/api/activities/${a.id}`);
           all = all.filter((x) => x.id !== a.id);
-          renderList();
+          removeCard(a.id);
           toast('Activiteit verwijderd.');
         } catch (ex) {
           toast((ex as ApiError)?.message || 'Verwijderen mislukt.', 'error');
@@ -104,13 +114,44 @@ export function activitiesView(container: HTMLElement) {
     );
   }
 
-  function renderList() {
-    const filtered = sport ? all.filter((a) => a.sport === sport) : all;
-    const n = filtered.length;
+  function matchesSport(a: ActivitySummary): boolean {
+    return !sport || a.sport === sport;
+  }
+
+  // Sportfilter: toon/verberg bestaande kaartjes (geen herbouw van de grid).
+  function applyFilter() {
+    for (const c of cards) c.node.style.display = matchesSport(c.a) ? '' : 'none';
+    updateCount();
+  }
+
+  function updateCount() {
+    let n = 0;
+    for (const c of cards) if (matchesSport(c.a)) n++;
     sub.textContent = `${n} ${n === 1 ? 'activiteit' : 'activiteiten'}`;
+    noResults.style.display = (all.length > 0 && n === 0) ? '' : 'none';
+  }
+
+  // Eén kaartje weghalen na verwijderen (val terug op de lege staat bij 0).
+  function removeCard(id: number) {
+    const i = cards.findIndex((c) => c.a.id === id);
+    if (i >= 0) { cards[i].node.remove(); cards.splice(i, 1); }
+    if (all.length === 0) rebuildList();
+    else updateCount();
+  }
+
+  function cancelRaf() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  }
+
+  // Herbouw bij NIEUWE data. Gefaseerd: eerste lichting meteen, de rest per rAF-batch.
+  function rebuildList() {
+    cancelRaf();
+    cards = [];
+    grid.innerHTML = '';
     listHolder.innerHTML = '';
 
     if (all.length === 0) {
+      sub.textContent = '0 activiteiten';
       listHolder.append(el('div', { class: 'empty' },
         svgEl(icons.flag),
         el('p', {}, 'Nog geen activiteiten. Upload een GPX van je tocht of neem er eentje op via een route > Start live.'),
@@ -119,25 +160,49 @@ export function activitiesView(container: HTMLElement) {
       ));
       return;
     }
-    if (filtered.length === 0) {
-      listHolder.append(el('div', { class: 'empty' },
-        svgEl(icons.search),
-        el('p', {}, 'Geen activiteiten voor deze sport.'),
-      ));
-      return;
+
+    listHolder.append(grid, noResults);
+
+    const FIRST = 40; // eerste lichting meteen (blijft < 50 ms long-task-drempel)
+    const BATCH = 30; // rest per animatieframe, ook telkens < 50 ms
+    const total = all.length;
+
+    const addCard = (a: ActivitySummary): HTMLElement => {
+      const node = card(a);
+      if (!matchesSport(a)) node.style.display = 'none';
+      cards.push({ a, node });
+      return node;
+    };
+
+    const firstFrag = document.createDocumentFragment();
+    for (let i = 0; i < Math.min(FIRST, total); i++) firstFrag.append(addCard(all[i]));
+    grid.append(firstFrag);
+    updateCount();
+
+    if (total > FIRST) {
+      let i = FIRST;
+      const step = () => {
+        rafId = 0;
+        if (destroyed) return; // view opgeruimd: geen batches meer toevoegen
+        const end = Math.min(i + BATCH, total);
+        const frag = document.createDocumentFragment();
+        for (; i < end; i++) frag.append(addCard(all[i]));
+        grid.append(frag);
+        updateCount();
+        if (i < total) rafId = requestAnimationFrame(step);
+      };
+      rafId = requestAnimationFrame(step);
     }
-    const grid = el('div', { class: 'grid-list' });
-    for (const a of filtered) grid.append(card(a));
-    listHolder.append(grid);
   }
 
   async function load() {
+    cancelRaf();
     listHolder.innerHTML = '';
     listHolder.append(el('div', { class: 'spinner' }));
     try {
       const r = await api.get<{ activities: ActivitySummary[] }>('/api/activities');
       all = r.activities;
-      renderList();
+      rebuildList();
     } catch (e) {
       listHolder.innerHTML = '';
       listHolder.append(el('div', { class: 'empty' },
@@ -247,4 +312,6 @@ export function activitiesView(container: HTMLElement) {
   }
 
   load();
+
+  return () => { destroyed = true; cancelRaf(); };
 }

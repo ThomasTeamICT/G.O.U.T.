@@ -21,6 +21,16 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
   let sort: SortKey = 'new';
   let q = '';
 
+  // Gefaseerd renderen + tonen/verbergen bij zoeken (geen herbouw per toets).
+  let cards: { r: RouteSummary; node: HTMLElement }[] = [];
+  let rafId = 0;
+  let destroyed = false;
+
+  const grid = el('div', { class: 'grid-list' });
+  const noResultsP = el('p', {});
+  const noResults = el('div', { class: 'empty' }, svgEl(icons.search), noResultsP);
+  noResults.style.display = 'none';
+
   const root = el('main', { class: 'page' });
   container.append(root);
 
@@ -30,7 +40,7 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
   const searchInput = el('input', {
     class: 'input input-search', type: 'search', placeholder: 'Zoeken op routenaam',
   });
-  searchInput.addEventListener('input', debounce(() => { q = searchInput.value.trim(); renderList(); }, 180));
+  searchInput.addEventListener('input', debounce(() => { q = searchInput.value.trim(); applyFilter(); }, 180));
 
   const chipbar = el('div', { class: 'filterbar' });
   const sortSelect = el('select', { class: 'input', style: 'width:auto;margin-left:auto' },
@@ -99,7 +109,7 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
       onclick: (e: MouseEvent) => e.stopPropagation() }, svgEl(icons.download));
     const share = el('button', { class: 'btn btn-icon', title: 'Delen', onclick: (e: MouseEvent) => {
       e.stopPropagation();
-      openShareModal(r, { onVisibilityChange: () => renderList() });
+      openShareModal(r, { onVisibilityChange: () => refreshCard(r) });
     } }, svgEl(icons.share));
     const del = el('button', { class: 'btn btn-icon', title: 'Verwijderen', onclick: async (e: MouseEvent) => {
       e.stopPropagation();
@@ -108,7 +118,7 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
       try {
         await api.del(`/api/routes/${r.id}`);
         all = all.filter((x) => x.id !== r.id);
-        renderList();
+        removeCard(r.id);
         toast('Route verwijderd.');
       } catch (ex) {
         toast((ex as ApiError)?.message || 'Verwijderen mislukt.', 'error');
@@ -127,15 +137,57 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
     );
   }
 
-  function renderList() {
-    const filtered = q
-      ? all.filter((r) => r.name.toLowerCase().includes(q.toLowerCase()))
-      : all;
-    const n = filtered.length;
+  function matchesQ(r: RouteSummary): boolean {
+    return !q || r.name.toLowerCase().includes(q.toLowerCase());
+  }
+
+  // Zoekbalk: toon/verberg bestaande kaartjes (geen herbouw van de grid).
+  function applyFilter() {
+    for (const c of cards) c.node.style.display = matchesQ(c.r) ? '' : 'none';
+    updateCount();
+  }
+
+  function updateCount() {
+    let n = 0;
+    for (const c of cards) if (matchesQ(c.r)) n++;
     sub.textContent = `${n} ${n === 1 ? 'route' : 'routes'}`;
+    const none = all.length > 0 && n === 0;
+    noResults.style.display = none ? '' : 'none';
+    if (none) noResultsP.textContent = `Geen routes gevonden voor "${q}".`;
+  }
+
+  // Eén kaartje weghalen na verwijderen (val terug op de lege staat bij 0 routes).
+  function removeCard(id: number) {
+    const i = cards.findIndex((c) => c.r.id === id);
+    if (i >= 0) { cards[i].node.remove(); cards.splice(i, 1); }
+    if (all.length === 0) rebuildList();
+    else updateCount();
+  }
+
+  // Eén kaartje vervangen (bv. na een zichtbaarheidswijziging via de deelmodal).
+  function refreshCard(r: RouteSummary) {
+    const i = cards.findIndex((c) => c.r.id === r.id);
+    if (i < 0) return;
+    const node = card(r);
+    if (!matchesQ(r)) node.style.display = 'none';
+    cards[i].node.replaceWith(node);
+    cards[i] = { r, node };
+  }
+
+  function cancelRaf() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  }
+
+  // Herbouw de grid bij NIEUWE data. Gefaseerd: eerste lichting meteen, de rest
+  // in batches per requestAnimationFrame zodat de main thread niet lang blokkeert.
+  function rebuildList() {
+    cancelRaf();
+    cards = [];
+    grid.innerHTML = '';
     listHolder.innerHTML = '';
 
     if (all.length === 0) {
+      sub.textContent = '0 routes';
       listHolder.append(el('div', { class: 'empty' },
         svgEl(icons.route),
         el('p', {}, 'Nog geen routes. Plan er eentje of importeer een GPX-bestand.'),
@@ -146,19 +198,43 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
       ));
       return;
     }
-    if (n === 0) {
-      listHolder.append(el('div', { class: 'empty' },
-        svgEl(icons.search),
-        el('p', {}, `Geen routes gevonden voor "${q}".`),
-      ));
-      return;
+
+    listHolder.append(grid, noResults);
+
+    const FIRST = 40; // eerste lichting meteen (blijft < 50 ms long-task-drempel)
+    const BATCH = 30; // rest per animatieframe, ook telkens < 50 ms
+    const total = all.length;
+
+    const addCard = (r: RouteSummary): HTMLElement => {
+      const node = card(r);
+      if (!matchesQ(r)) node.style.display = 'none';
+      cards.push({ r, node });
+      return node;
+    };
+
+    const firstFrag = document.createDocumentFragment();
+    for (let i = 0; i < Math.min(FIRST, total); i++) firstFrag.append(addCard(all[i]));
+    grid.append(firstFrag);
+    updateCount();
+
+    if (total > FIRST) {
+      let i = FIRST;
+      const step = () => {
+        rafId = 0;
+        if (destroyed) return; // view opgeruimd: geen batches meer toevoegen
+        const end = Math.min(i + BATCH, total);
+        const frag = document.createDocumentFragment();
+        for (; i < end; i++) frag.append(addCard(all[i]));
+        grid.append(frag);
+        updateCount();
+        if (i < total) rafId = requestAnimationFrame(step);
+      };
+      rafId = requestAnimationFrame(step);
     }
-    const grid = el('div', { class: 'grid-list' });
-    for (const r of filtered) grid.append(card(r));
-    listHolder.append(grid);
   }
 
   async function load() {
+    cancelRaf();
     listHolder.innerHTML = '';
     listHolder.append(el('div', { class: 'spinner' }));
     try {
@@ -167,7 +243,7 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
       params.set('sort', sort);
       const r = await api.get<{ routes: RouteSummary[] }>(`/api/routes?${params.toString()}`);
       all = r.routes;
-      renderList();
+      rebuildList();
     } catch (e) {
       listHolder.innerHTML = '';
       listHolder.append(el('div', { class: 'empty' },
@@ -324,4 +400,6 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
     history.replaceState(null, '', '#/routes');
     openImportModal();
   }
+
+  return () => { destroyed = true; cancelRaf(); };
 }

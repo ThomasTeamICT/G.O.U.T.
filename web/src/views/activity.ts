@@ -18,6 +18,7 @@ import type { ActivityFull, Sport } from '../types';
 export function activityView(container: HTMLElement, params: Record<string, string>) {
   let map: L.Map | null = null;
   let elev: { destroy(): void } | null = null;
+  let destroyed = false; // view verlaten tijdens de fetch: geen kaart meer bouwen
 
   const root = el('div', {});
   container.append(root);
@@ -27,8 +28,10 @@ export function activityView(container: HTMLElement, params: Record<string, stri
     let act: ActivityFull;
     try {
       const r = await api.get<{ activity: ActivityFull }>(`/api/activities/${encodeURIComponent(params.id)}`);
+      if (destroyed) return; // weggenavigeerd terwijl de fetch liep
       act = r.activity;
     } catch (e) {
+      if (destroyed) return;
       root.innerHTML = '';
       const notFound = (e as ApiError)?.status === 404;
       root.append(el('main', { class: 'page' },
@@ -177,7 +180,8 @@ export function activityView(container: HTMLElement, params: Record<string, stri
   }
 
   return () => {
+    destroyed = true;
     elev?.destroy();
-    if (map) { map.remove(); map = null; }
+    if (map) { map.stop(); map.remove(); map = null; }
   };
 }

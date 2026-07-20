@@ -133,6 +133,7 @@ export function routeView(container: HTMLElement, params: Record<string, string>
   let stopLive: (() => void) | null = null;
   let stopMarkingRef: (() => void) | null = null;
   let onResizeRef: (() => void) | null = null;
+  let destroyed = false; // view verlaten tijdens de fetch: geen kaart meer bouwen
 
   const root = el('div', {});
   container.append(root);
@@ -142,8 +143,10 @@ export function routeView(container: HTMLElement, params: Record<string, string>
     let route: RouteFull;
     try {
       const r = await api.get<{ route: RouteFull }>(`/api/routes/${encodeURIComponent(params.id)}`);
+      if (destroyed) return; // weggenavigeerd terwijl de fetch liep
       route = r.route;
     } catch (e) {
+      if (destroyed) return;
       root.innerHTML = '';
       const notFound = (e as ApiError)?.status === 404;
       root.append(el('main', { class: 'page' },
@@ -499,11 +502,14 @@ export function routeView(container: HTMLElement, params: Record<string, string>
   }
 
   return () => {
+    destroyed = true;
     stopMarkingRef?.();
     onResizeRef?.();
     stopLive?.();
     elev?.destroy();
-    if (map) { map.remove(); map = null; }
+    // map.stop() vóór remove(): stopt een lopende pan/zoom-animatie (anders
+    // een _leaflet_pos-fout, zie discover.ts).
+    if (map) { map.stop(); map.remove(); map = null; }
   };
 }
 

@@ -169,9 +169,16 @@ export function modal(content: HTMLElement, opts: { onClose?: () => void } = {})
     'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
   )).filter((n) => !n.hasAttribute('disabled') && n.offsetParent !== null);
 
+  // close() is idempotent (closed-vlag): mag dubbel aangeroepen worden zonder
+  // schade — bv. wanneer zowel de view-cleanup (plan.ts closeKnownModal) als de
+  // eigen hashchange-listener hieronder afvuren bij dezelfde view-wissel.
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     backdrop.remove();
     document.removeEventListener('keydown', onKey);
+    window.removeEventListener('hashchange', close);
     opener?.focus?.();
     opts.onClose?.();
   };
@@ -190,6 +197,11 @@ export function modal(content: HTMLElement, opts: { onClose?: () => void } = {})
   };
   backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) close(); });
   document.addEventListener('keydown', onKey);
+  // De router wist alleen de view-container; de backdrop hangt aan document.body.
+  // Sluit daarom elke modal automatisch bij een view-wissel (terugknop,
+  // 401-redirect, navigatie) zodat er geen schermvullende wees-backdrop blijft
+  // hangen en confirmDialog netjes false resolvet via onClose.
+  window.addEventListener('hashchange', close);
   document.body.append(backdrop);
   const f = focusables();
   (f.find((n) => n.matches('input, select, textarea')) || f[0] || panel).focus();

@@ -16,6 +16,7 @@ import L from 'leaflet';
 export function sharedView(container: HTMLElement, params: Record<string, string>) {
   let map: L.Map | null = null;
   let elev: { destroy(): void } | null = null;
+  let destroyed = false; // view verlaten tijdens de fetch: geen kaart meer bouwen
 
   // Ingelogde gebruikers zien de gewone app-topbar al; anders eigen kop.
   let header: HTMLElement | null = null;
@@ -35,8 +36,10 @@ export function sharedView(container: HTMLElement, params: Record<string, string
     let route: RouteFull;
     try {
       const r = await api.get<{ route: RouteFull }>(`/api/shared/${encodeURIComponent(params.token)}`);
+      if (destroyed) return; // weggenavigeerd terwijl de fetch liep
       route = r.route;
     } catch (e) {
+      if (destroyed) return;
       root.innerHTML = '';
       const notFound = (e as ApiError)?.status === 404;
       root.append(el('main', { class: 'page' },
@@ -112,8 +115,9 @@ export function sharedView(container: HTMLElement, params: Record<string, string
   }
 
   return () => {
+    destroyed = true;
     elev?.destroy();
-    if (map) { map.remove(); map = null; }
+    if (map) { map.stop(); map.remove(); map = null; }
     header?.remove();
   };
 }
