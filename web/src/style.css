@@ -273,6 +273,7 @@ main.page-wide { flex: 1; width: 100%; padding: 0; display: flex; min-height: 0;
     var(--bg);
 }
 .auth-card { width: 100%; max-width: 400px; }
+.versie-stempel { text-align: center; font-size: .72rem; color: var(--muted); margin-top: .8rem; }
 .auth-card .logo-big { text-align: center; margin-bottom: 1.4rem; }
 .auth-card .logo-big b { font-size: 2rem; letter-spacing: -.03em; }
 .auth-card .logo-big div { color: var(--muted); font-weight: 600; font-size: .85rem; }

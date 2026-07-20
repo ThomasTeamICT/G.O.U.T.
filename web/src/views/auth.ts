@@ -54,6 +54,7 @@ export function authView(container: HTMLElement) {
             err,
           ),
         ),
+        el('div', { class: 'versie-stempel' }, `versie ${__BOUWSTEMPEL__}`),
       ),
     );
     email.focus();

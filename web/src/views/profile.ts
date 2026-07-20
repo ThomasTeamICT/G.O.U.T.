@@ -124,6 +124,8 @@ export function profileView(container: HTMLElement) {
       },
     }, svgEl(icons.logout), 'Uitloggen'),
   ));
+
+  root.append(el('div', { class: 'versie-stempel' }, `versie ${__BOUWSTEMPEL__}`));
 }
 
 function initialOf(name: string): string {
