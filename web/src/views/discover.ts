@@ -335,6 +335,7 @@ export function discoverView(container: HTMLElement): () => void {
   }
 
   async function loadAanbevolen(bbox: string, seq: number) {
+    if (destroyed) return; // view al verlaten: kaart bestaat niet meer
     const params = new URLSearchParams({ bbox });
       const c = map.getCenter();
       params.set('center', `${c.lng.toFixed(5)},${c.lat.toFixed(5)}`);
@@ -490,7 +491,7 @@ export function discoverView(container: HTMLElement): () => void {
     if (sport) params.set('sport', sport);
     try {
       const { highlights } = await api.get<{ highlights: Highlight[] }>(`/api/highlights?${params}`);
-      if (!showHighlights) return;
+      if (destroyed || !showHighlights) return;
       drawHighlights(highlights);
       // Lege staat: staat de toggle aan en levert deze laadbeurt 0 highlights op,
       // dan éénmaal per sessie een vriendelijke hint tonen.
@@ -499,6 +500,7 @@ export function discoverView(container: HTMLElement): () => void {
         toast(HL_EMPTY_HINT);
       }
     } catch (e) {
+      if (destroyed) return;
       toast(e instanceof ApiError ? e.message : 'Kon highlights niet laden.', 'error');
     }
   }
@@ -592,12 +594,12 @@ export function discoverView(container: HTMLElement): () => void {
     if (sport) params.set('sport', sport);
     try {
       const { routes } = await api.get<{ routes: RouteSummary[] }>(`/api/discover?${params}`);
-      if (seq !== searchSeq) return;
+      if (destroyed || seq !== searchSeq) return;
       drawPreviews(routes);
       renderResults(routes, { ranked: false, emptyMsg: AREA_EMPTY });
       if (fit) fitToResults(routes);
     } catch (e) {
-      if (seq === searchSeq) {
+      if (!destroyed && seq === searchSeq) {
         renderError('Kon routes niet laden. Probeer het opnieuw.');
         toast(e instanceof ApiError ? e.message : 'Kon routes niet laden.', 'error');
       }
@@ -606,7 +608,7 @@ export function discoverView(container: HTMLElement): () => void {
     }
     // Aanbevolen bewegwijzerde routes voor hetzelfde gebied (zelfde moment als de
     // community-zoek; NIET bij elke moveend, alleen bij expliciete zoekacties).
-    if (seq === searchSeq) void loadAanbevolen(bbox, seq);
+    if (!destroyed && seq === searchSeq) void loadAanbevolen(bbox, seq);
   }
 
   async function loadTop() {
@@ -619,10 +621,12 @@ export function discoverView(container: HTMLElement): () => void {
       const { routes } = await api.get<{ routes: RouteSummary[] }>(
         `/api/discover/top${qs ? '?' + qs : ''}`,
       );
+      if (destroyed) return;
       drawPreviews(routes);
       renderResults(routes, { ranked: true, emptyMsg: TOP_EMPTY });
       fitToResults(routes);
     } catch (e) {
+      if (destroyed) return;
       renderError('Kon de top 10 niet laden. Probeer het opnieuw.');
       toast(e instanceof ApiError ? e.message : 'Kon de top 10 niet laden.', 'error');
     }
