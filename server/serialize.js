@@ -4,12 +4,26 @@
 import { db } from './db.js';
 import { preview as computePreview } from './geo.js';
 
-function likesFor(routeId, viewerId) {
-  const likes = db.prepare('SELECT COUNT(*) AS c FROM route_likes WHERE route_id = ?').get(routeId).c;
-  const liked = viewerId
+// Smalle kolomlijsten voor lijst-/ontdek-endpoints: exact de velden die de
+// summary-serializers lezen, ZONDER de zware track- en gpx-blobs (die per rij
+// materialiseren was gemeten ~87x trager). Preview + scalairen volstaan.
+export const ROUTE_SUMMARY_COLUMNS =
+  'r.id, r.user_id, r.name, r.sport, r.distance_m, r.ascent_m, r.descent_m, ' +
+  'r.duration_s, r.difficulty, r.region, r.visibility, r.share_token, r.source, ' +
+  'r.curated, r.start_lat, r.start_lon, r.bbox, r.preview, r.created_at, r.updated_at';
+export const ACTIVITY_SUMMARY_COLUMNS =
+  'id, name, sport, distance_m, ascent_m, descent_m, moving_s, elapsed_s, ' +
+  'started_at, region, route_id, preview, created_at';
+
+function likedByViewer(routeId, viewerId) {
+  return viewerId
     ? !!db.prepare('SELECT 1 AS x FROM route_likes WHERE route_id = ? AND user_id = ?').get(routeId, viewerId)
     : false;
-  return { likes, liked };
+}
+
+function likesFor(routeId, viewerId) {
+  const likes = db.prepare('SELECT COUNT(*) AS c FROM route_likes WHERE route_id = ?').get(routeId).c;
+  return { likes, liked: likedByViewer(routeId, viewerId) };
 }
 
 function previewOf(row) {
@@ -17,8 +31,36 @@ function previewOf(row) {
   try { return computePreview(JSON.parse(row.track)); } catch { return []; }
 }
 
-export function routeSummary(row, viewerId = null) {
-  const { likes, liked } = likesFor(row.id, viewerId);
+// Previews worden bij create/update/import altijd bewaard. De lijst-endpoints
+// halen de track-blob niet meer op, dus voor eventuele legacy-rijen (of tests)
+// zonder preview haalt deze helper de track eenmalig apart op, berekent de
+// preview en bewaart die (self-healing backfill); daarna gebruikt de serializer
+// gewoon row.preview. Vaste prepared statements per tabel (geen dynamische SQL).
+const PREVIEW_SQL = {
+  routes: { sel: 'SELECT track FROM routes WHERE id = ?', upd: 'UPDATE routes SET preview = ? WHERE id = ?' },
+  activities: { sel: 'SELECT track FROM activities WHERE id = ?', upd: 'UPDATE activities SET preview = ? WHERE id = ?' },
+};
+
+export function ensurePreviews(table, rows) {
+  const q = PREVIEW_SQL[table];
+  if (!q) return;
+  let sel, upd;
+  for (const row of rows) {
+    if (row.preview) continue;
+    if (!sel) { sel = db.prepare(q.sel); upd = db.prepare(q.upd); }
+    const t = sel.get(row.id);
+    if (!t || t.track == null) continue;
+    let pv;
+    try { pv = JSON.stringify(computePreview(JSON.parse(t.track))); } catch { continue; }
+    upd.run(pv, row.id);
+    row.preview = pv;
+  }
+}
+
+export function routeSummary(row, viewerId = null, likeCount = undefined) {
+  const { likes, liked } = likeCount === undefined
+    ? likesFor(row.id, viewerId)
+    : { likes: likeCount, liked: likedByViewer(row.id, viewerId) };
   return {
     id: row.id,
     name: row.name,

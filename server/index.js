@@ -1,5 +1,6 @@
 import express from 'express';
-import { gzipSync } from 'node:zlib';
+import { gzipSync, gzip as gzipCb } from 'node:zlib';
+import { promisify } from 'node:util';
 import { join, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -26,17 +27,32 @@ app.use(express.json({ limit: '25mb' }));
 
 // Gzip voor JSON-antwoorden (tracks van lange routes zijn honderden kB's):
 // scheelt ~80% over trage verbindingen. zlib zit ingebouwd — geen dependency.
+const gzipAsync = promisify(gzipCb);
 app.use((req, res, next) => {
   const accepteert = String(req.headers['accept-encoding'] || '').includes('gzip');
   if (!accepteert) return next();
   const origJson = res.json.bind(res);
   res.json = (body) => {
-    const tekst = JSON.stringify(body);
-    if (tekst.length < 1024) return origJson(body);
-    res.setHeader('Content-Encoding', 'gzip');
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Vary', 'Accept-Encoding');
-    return res.send(gzipSync(Buffer.from(tekst)));
+    const buf = Buffer.from(JSON.stringify(body));
+    if (buf.length < 1024) return origJson(body);
+    const zetHeaders = () => {
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Vary', 'Accept-Encoding');
+    };
+    // Grote payloads (lange tracks) async comprimeren zodat gzip de event loop
+    // niet blokkeert (gemeten tot ~800 ms bij 6 MB). Kleintjes blijven sync voor
+    // de laagste latentie. Fouten netjes naar de error-handler via next(err).
+    if (buf.length >= 256 * 1024) {
+      gzipAsync(buf).then((gz) => {
+        if (res.headersSent) return;
+        zetHeaders();
+        res.send(gz);
+      }).catch(next);
+      return res;
+    }
+    zetHeaders();
+    return res.send(gzipSync(buf));
   };
   next();
 });

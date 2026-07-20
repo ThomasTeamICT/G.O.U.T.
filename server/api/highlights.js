@@ -117,30 +117,40 @@ highlightsRouter.get('/', requireAuth, (req, res) => {
   if (sport) { where.push("(h.sport = ? OR h.sport = 'alle')"); params.push(sport); }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
-  // Voorselectie op stemmen (desc) en daarna nieuwste eerst; pas in JS filteren
-  // op bbox-overlap en afkappen op de gevraagde limiet.
-  const rows = db.prepare(`
-    SELECT h.*, u.name AS owner_name,
+  // Fase 1: goedkope voorselectie zonder track-blobs — enkel id, bbox en
+  // vote_count (voor sortering en de bbox-filter). Bij elke kaart-pan de volle
+  // segment-tracks van maximaal 1000 rijen materialiseren was onnodig zwaar.
+  const idRows = db.prepare(`
+    SELECT h.id, h.bbox,
       (SELECT COUNT(*) FROM highlight_votes hv WHERE hv.highlight_id = h.id) AS vote_count
     FROM highlights h
-    JOIN users u ON u.id = h.user_id
     ${whereSql}
     ORDER BY vote_count DESC, h.created_at DESC
     LIMIT ?
   `).all(...params, POOL);
 
-  const matched = [];
-  for (const row of rows) {
+  const matchedIds = [];
+  for (const row of idRows) {
     let bb = null;
     try { bb = row.bbox ? JSON.parse(row.bbox) : null; } catch { bb = null; }
     if (!Array.isArray(bb) || bb.length !== 4 || bb.some((n) => !Number.isFinite(n))) continue;
     if (overlaps(bb, w2, s2, e2, n2)) {
-      matched.push(row);
-      if (matched.length >= MAX_RESULTS) break;
+      matchedIds.push(row.id);
+      if (matchedIds.length >= MAX_RESULTS) break;
     }
   }
 
-  res.json({ highlights: matched.map((row) => highlightSummary(row, req.user.id)) });
+  // Fase 2: alleen voor de ≤200 gematchte rijen de volledige rij ophalen
+  // (inclusief track, die highlightSummary teruggeeft).
+  const full = db.prepare(
+    'SELECT h.*, u.name AS owner_name FROM highlights h JOIN users u ON u.id = h.user_id WHERE h.id = ?'
+  );
+  const highlights = [];
+  for (const id of matchedIds) {
+    const row = full.get(id);
+    if (row) highlights.push(highlightSummary(row, req.user.id));
+  }
+  res.json({ highlights });
 });
 
 // POST /api/highlights

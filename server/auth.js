@@ -5,6 +5,16 @@ import { db } from './db.js';
 const SESSION_DAYS = 90;
 const COOKIE = 'gout_session';
 
+// Verlopen sessies opruimen: de tabel groeide anders eeuwig (alleen logout
+// verwijdert). Bij opstart en daarna elke 6 uur; .unref() zodat deze timer het
+// proces niet levend houdt (bv. in tests/CLI).
+function pruneSessions() {
+  try { db.prepare("DELETE FROM sessions WHERE expires_at <= datetime('now')").run(); }
+  catch { /* best effort */ }
+}
+pruneSessions();
+setInterval(pruneSessions, 6 * 3600_000).unref();
+
 // --- wachtwoord-hashing met scrypt (ingebouwd, geen dependencies) ---
 
 export function hashPassword(password) {
@@ -74,6 +84,11 @@ const hits = new Map();
 function rateLimit(req, res, next) {
   const now = Date.now();
   const key = req.ip || 'x';
+  // Onbegrensde groei tegengaan: is de map groot, veeg dan entries ouder dan
+  // het venster (60 s) weg — die zijn toch verlopen.
+  if (hits.size > 1000) {
+    for (const [k, v] of hits) if (now - v.t > 60_000) hits.delete(k);
+  }
   const entry = hits.get(key) || { n: 0, t: now };
   if (now - entry.t > 60_000) { entry.n = 0; entry.t = now; }
   if (++entry.n > 20) return res.status(429).json({ error: 'Te veel pogingen, wacht even.' });

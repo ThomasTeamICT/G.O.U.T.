@@ -162,6 +162,64 @@ test('routes: import bewaart origineel gpx', async () => {
   assert.match(text, /creator="elders"/, 'origineel gpx teruggeven zolang onbewerkt');
 });
 
+test('routes-lijst: ontbrekende preview wordt aangevuld (backfill, finding 3)', async () => {
+  // De lijst-endpoints selecteren geen track-blob meer. Voor een rij zonder
+  // preview moet de lijst hem toch teruggeven (backfill). We zetten preview
+  // buiten de server om op NULL, dus een aparte serverinstantie met een echte
+  // db-file. Poort in 6100-6900.
+  const PORT2 = 6234;
+  const BASE2 = `http://localhost:${PORT2}`;
+  const dataDir = pathJoin(tmpdir(), `gout-preview-${process.pid}-${Date.now()}`);
+  const env = { ...process.env, PORT: String(PORT2), GOUT_DATA_DIR: dataDir };
+  delete env.GOUT_DB; // echte db-file i.p.v. :memory: zodat een 2e connectie kan schrijven
+  const srv = spawn(process.execPath, ['--no-warnings', 'server/index.js'], { env, stdio: ['ignore', 'pipe', 'inherit'] });
+  try {
+    await new Promise((resolve, reject) => {
+      const to = setTimeout(() => reject(new Error('server2 startte niet')), 8000);
+      srv.stdout.on('data', (d) => { if (String(d).includes('draait op')) { clearTimeout(to); resolve(); } });
+    });
+
+    let cookie = '';
+    const req = async (method, path, body) => {
+      const res = await fetch(BASE2 + path, {
+        method,
+        headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const sc = res.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
+      const t = await res.text();
+      return { status: res.status, data: t ? JSON.parse(t) : null };
+    };
+
+    await req('POST', '/api/auth/register', { email: 'pv@test.be', name: 'Preview', password: 'wachtwoord1' });
+    let r = await req('POST', '/api/routes', { name: 'Preview-route', sport: 'wandelen', track: TRACK });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const id = r.data.route.id;
+
+    // preview buiten de server om wissen
+    const db2 = new DatabaseSync(pathJoin(dataDir, 'gout.db'));
+    try { db2.prepare('UPDATE routes SET preview = NULL WHERE id = ?').run(id); } finally { db2.close(); }
+
+    // lijst geeft nog steeds een preview terug (backfill)
+    r = await req('GET', '/api/routes');
+    assert.equal(r.status, 200);
+    const route = r.data.routes.find((x) => x.id === id);
+    assert.ok(route, 'route in lijst');
+    assert.ok(Array.isArray(route.preview) && route.preview.length >= 2,
+      `preview aangevuld (kreeg ${JSON.stringify(route.preview)})`);
+
+    // backfill is bewaard: preview staat weer in de db
+    const db3 = new DatabaseSync(pathJoin(dataDir, 'gout.db'), { readOnly: true });
+    try {
+      const stored = db3.prepare('SELECT preview FROM routes WHERE id = ?').get(id).preview;
+      assert.ok(stored && JSON.parse(stored).length >= 2, 'preview backfilled in db');
+    } finally { db3.close(); }
+  } finally {
+    srv.kill();
+    try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* ok */ }
+  }
+});
+
 test('activiteiten: aanmaken + stats', async () => {
   const c = client();
   await c.req('POST', '/api/auth/register', { email: 'act@test.be', name: 'Actief', password: 'wachtwoord1' });
@@ -282,6 +340,13 @@ test('bekende routes: zoeken en geometrie aaneenrijgen', async () => {
   assert.ok(r.data.chains[0].distanceM > r.data.chains[1].distanceM, 'takken gesorteerd op lengte');
   assert.ok(!r.data.track.some((p) => p[0] === 4.21), 'alternative-variant weggefilterd');
   assert.ok(typeof r.data.note === 'string' && r.data.note.length > 0, 'note aanwezig');
+
+  // korte bewegwijzerde route (<5 km): selectBranches filtert alle kettingen
+  // weg -> val terug op de langste ketting i.p.v. 502 met gelekte fouttekst
+  r = await c.req('GET', '/api/knownroutes/903?sport=wandelen');
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.ok(Array.isArray(r.data.track) && r.data.track.length >= 2, 'korte route levert een track');
+  assert.ok(r.data.chains === undefined, 'korte route: geen extra takken');
 
   r = await c.req('GET', '/api/knownroutes/abc?sport=wandelen');
   assert.equal(r.status, 400);

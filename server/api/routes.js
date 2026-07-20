@@ -7,7 +7,7 @@ import { db } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { routeStats, preview } from '../geo.js';
 import { buildGpx, gpxFilename } from '../gpx.js';
-import { routeSummary, routeFull } from '../serialize.js';
+import { routeSummary, routeFull, ROUTE_SUMMARY_COLUMNS, ensurePreviews } from '../serialize.js';
 
 export const routesRouter = Router();
 export const sharedRouter = Router();
@@ -119,7 +119,9 @@ function requireOwner(row, req, res) {
 
 routesRouter.get('/', requireAuth, (req, res) => {
   const { q, sport, sort } = req.query;
-  let sql = 'SELECT r.*, u.name AS owner_name FROM routes r JOIN users u ON u.id = r.user_id WHERE r.user_id = ?';
+  // Smalle kolomlijst (geen track/gpx-blobs): de summary gebruikt enkel preview
+  // + scalairen. Materialiseren van volle tracks per rij was ~87x trager.
+  let sql = `SELECT ${ROUTE_SUMMARY_COLUMNS}, u.name AS owner_name FROM routes r JOIN users u ON u.id = r.user_id WHERE r.user_id = ?`;
   const args = [req.user.id];
   if (sport && SPORTS.includes(String(sport))) { sql += ' AND r.sport = ?'; args.push(String(sport)); }
   if (q && String(q).trim()) {
@@ -132,6 +134,7 @@ routesRouter.get('/', requireAuth, (req, res) => {
     : 'r.created_at DESC, r.id DESC';
   sql += ' ORDER BY ' + order;
   const rows = db.prepare(sql).all(...args);
+  ensurePreviews('routes', rows);
   res.json({ routes: rows.map((row) => routeSummary(row, req.user.id)) });
 });
 

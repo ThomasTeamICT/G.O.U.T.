@@ -102,8 +102,38 @@ export function simplify(track, tolerance = 0.0004) {
 }
 
 // Compacte preview voor lijstkaartjes/minimaps: max ~120 punten, alleen lon/lat.
+// Douglas-Peucker (simplify) is O(n^2) in de worst case: een zigzag-track van
+// 100k punten (toegelaten door de validatie) laat de server minutenlang
+// blokkeren, en preview() draait synchroon bij elke POST/PUT/import. Voor een
+// minimap is meer detail zinloos, dus dunnen we de invoer eerst in O(n) uit tot
+// hoogstens ~2000 punten vóór Douglas-Peucker (worst case dan ~2000^2, dus
+// verwaarloosbaar). We doen dat NIET met naïeve stride-sampling (die aliast een
+// hoogfrequente zigzag weg tot een rechte lijn), maar door per venster de
+// extreme punten (min/max lon én lat) te bewaren; zo blijft de vorm/amplitude
+// behouden. Begin- en eindpunt blijven altijd staan. Tracks <=2000 punten gaan
+// ongewijzigd door Douglas-Peucker (identiek resultaat als voorheen).
 export function preview(track) {
-  let t = simplify(track, 0.0004);
+  let input = track;
+  const MAX_IN = 2000;
+  if (input.length > MAX_IN) {
+    const WINDOWS = 400;
+    const size = Math.ceil(input.length / WINDOWS);
+    const idxSet = new Set([0, input.length - 1]);
+    for (let w = 0; w < input.length; w += size) {
+      const end = Math.min(w + size, input.length);
+      let iMinLon = w, iMaxLon = w, iMinLat = w, iMaxLat = w;
+      for (let i = w + 1; i < end; i++) {
+        const p = input[i];
+        if (p[0] < input[iMinLon][0]) iMinLon = i;
+        if (p[0] > input[iMaxLon][0]) iMaxLon = i;
+        if (p[1] < input[iMinLat][1]) iMinLat = i;
+        if (p[1] > input[iMaxLat][1]) iMaxLat = i;
+      }
+      idxSet.add(iMinLon); idxSet.add(iMaxLon); idxSet.add(iMinLat); idxSet.add(iMaxLat);
+    }
+    input = [...idxSet].sort((a, b) => a - b).map((i) => input[i]);
+  }
+  let t = simplify(input, 0.0004);
   if (t.length > 120) {
     const step = Math.ceil(t.length / 120);
     t = t.filter((_, i) => i % step === 0 || i === t.length - 1);

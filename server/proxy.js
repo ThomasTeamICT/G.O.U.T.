@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from './auth.js';
+import { KnownRouteError } from './knownroutes.js';
+import { cacheSet } from './cache.js';
 
 // Routering loopt via de server zodat CORS geen probleem is en de
 // BRouter-instantie configureerbaar blijft (zelf hosten kan ook).
@@ -141,7 +143,7 @@ async function wmtFetch(url) {
   const r = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(20000) });
   if (!r.ok) throw new Error(`WMT ${r.status}`);
   const data = await r.json();
-  wmtCache.set(url, { t: Date.now(), data });
+  cacheSet(wmtCache, url, { t: Date.now(), data }, { max: 200, ttl: 3600_000 });
   return data;
 }
 
@@ -186,7 +188,13 @@ proxyRouter.get('/knownroutes/:id', requireAuth, async (req, res) => {
         : 'Geometrie uit OpenStreetMap (Overpass); hoogtedata niet inbegrepen.',
     });
   } catch (e) {
-    const status = e?.status || 502;
-    res.status(status).json({ error: e?.message || 'Kon de routegeometrie niet ophalen. Probeer opnieuw.' });
+    // Alleen nette KnownRouteError-teksten doorsturen; onverwachte fouten niet
+    // lekken (interne stacktrace/fouttekst) maar generiek melden + serverzijdig loggen.
+    if (e instanceof KnownRouteError) {
+      res.status(e.status || 502).json({ error: e.message });
+    } else {
+      console.error(e);
+      res.status(502).json({ error: 'Kon de routegeometrie niet ophalen. Probeer opnieuw.' });
+    }
   }
 });

@@ -6,7 +6,7 @@ import { db } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { activityStats, preview } from '../geo.js';
 import { buildGpx, gpxFilename } from '../gpx.js';
-import { activitySummary, activityFull } from '../serialize.js';
+import { activitySummary, activityFull, ACTIVITY_SUMMARY_COLUMNS, ensurePreviews } from '../serialize.js';
 
 export const activitiesRouter = Router();
 
@@ -86,9 +86,12 @@ function sendGpx(res, row) {
 /* ---------- lijst & aanmaken ---------- */
 
 activitiesRouter.get('/', requireAuth, (req, res) => {
+  // Smalle kolomlijst (geen track/gpx-blobs): de summary gebruikt enkel preview
+  // + scalairen. Materialiseren van volle tracks per rij was ~87x trager.
   const rows = db.prepare(
-    'SELECT * FROM activities WHERE user_id = ? ORDER BY COALESCE(started_at, created_at) DESC, id DESC'
+    `SELECT ${ACTIVITY_SUMMARY_COLUMNS} FROM activities WHERE user_id = ? ORDER BY COALESCE(started_at, created_at) DESC, id DESC`
   ).all(req.user.id);
+  ensurePreviews('activities', rows);
   res.json({ activities: rows.map(activitySummary) });
 });
 

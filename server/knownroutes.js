@@ -5,12 +5,14 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { simplify, haversine, trackDistance } from './geo.js';
+import { cacheSet } from './cache.js';
 
 const UA = 'G.O.U.T.-routeplanner/1.0 (zelfgehost, contact via beheerder)';
 const DATA_DIR = process.env.GOUT_DATA_DIR ||
   join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
 const memCache = new Map();   // cacheKey -> { t, data }
+const MEMCACHE_LIMIT = { max: 30, ttl: 24 * 3600_000 }; // grote geometrieën -> kleine max
 const inflight = new Map();   // cacheKey -> Promise
 
 export class KnownRouteError extends Error {
@@ -147,7 +149,7 @@ export async function fetchKnownRouteGeometry(id, opts = {}) {
   if (hit && Date.now() - hit.t < 24 * 3600_000) {
     data = hit.data;
   } else if (existsSync(cacheFile)) {
-    try { data = JSON.parse(readFileSync(cacheFile, 'utf8')); memCache.set(cacheKey, { t: Date.now(), data }); } catch { /* herophalen */ }
+    try { data = JSON.parse(readFileSync(cacheFile, 'utf8')); cacheSet(memCache, cacheKey, { t: Date.now(), data }, MEMCACHE_LIMIT); } catch { /* herophalen */ }
   }
   if (!data) {
     if (!inflight.has(cacheKey)) {
@@ -159,14 +161,23 @@ export async function fetchKnownRouteGeometry(id, opts = {}) {
       })().finally(() => setTimeout(() => inflight.delete(cacheKey), 1000)));
     }
     data = await inflight.get(cacheKey);
-    memCache.set(cacheKey, { t: Date.now(), data });
+    cacheSet(memCache, cacheKey, { t: Date.now(), data }, MEMCACHE_LIMIT);
     try { mkdirSync(cacheDir, { recursive: true }); writeFileSync(cacheFile, JSON.stringify(data)); } catch { /* best effort */ }
   }
 
   const segments = collectSegments(data);
   if (!segments.length) throw new KnownRouteError(404, 'Geen geometrie gevonden voor deze route.');
   const kettingen = stitchChains(segments);
-  const takken = selectBranches(kettingen);
+  if (!kettingen.length) throw new KnownRouteError(404, 'Geen geometrie gevonden voor deze route.');
+  let takken = selectBranches(kettingen);
+  if (!takken.length) {
+    // Korte lokale lus (<5 km): selectBranches (>=5 km én >=25% van de langste)
+    // filtert alle kettingen weg -> takken[0] gaf een TypeError -> 502 met
+    // gelekte fouttekst. Val terug op de langste ketting als enige tak, zodat
+    // korte bewegwijzerde routes gewoon laden.
+    const k = kettingen[0];
+    takken = [{ track: verklein(k), distanceM: Math.round(trackDistance(k)) }];
+  }
   return {
     track: takken[0].track,
     chains: takken.length > 1 ? takken : undefined,

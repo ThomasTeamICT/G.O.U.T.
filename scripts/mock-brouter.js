@@ -26,6 +26,15 @@ function segment(a, b, n) {
 function overpassGeometrie(q) {
   const m = q.match(/rel\((\d+)\)/);
   const id = m ? Number(m[1]) : 902;
+  // Korte lokale lus (~2,6 km): één korte ketting. selectBranches (>=5 km)
+  // filtert die weg, zodat de API moet terugvallen op de langste ketting
+  // i.p.v. een 502 met gelekte fouttekst (finding 2).
+  if (id === 903) {
+    return { elements: [{ type: 'relation', id, members: [
+      { type: 'way', ref: 1, role: '', geometry: [
+        { lat: 50.930, lon: 4.200 }, { lat: 50.940, lon: 4.210 }, { lat: 50.950, lon: 4.220 }] },
+    ] }] };
+  }
   const ways = [
     { type: 'way', ref: 2, role: '', geometry: [
       { lat: 50.93, lon: 4.20 }, { lat: 50.95, lon: 4.15 }, { lat: 50.96, lon: 4.10 }] },

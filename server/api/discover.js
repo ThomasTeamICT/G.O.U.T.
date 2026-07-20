@@ -9,9 +9,10 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { requireAuth } from '../auth.js';
-import { routeSummary } from '../serialize.js';
+import { routeSummary, ROUTE_SUMMARY_COLUMNS, ensurePreviews } from '../serialize.js';
 import { overpassQuery, KnownRouteError } from '../knownroutes.js';
 import { haversine } from '../geo.js';
+import { cacheSet } from '../cache.js';
 
 export const discoverRouter = Router();
 
@@ -28,9 +29,11 @@ function overlaps(a, w2, s2, e2, n2) {
   return w <= e2 && e >= w2 && s <= n2 && n >= s2;
 }
 
-// Gedeelde selectie van publieke routes met optioneel sport/q-filter,
-// gesorteerd op likes (desc) en daarna nieuwste eerst.
-function selectPublic({ sport, q, limit }) {
+// Fase 1: goedkope voorselectie van publieke routes met optioneel sport/q-filter,
+// gesorteerd op likes (desc) en daarna nieuwste eerst. Enkel id, bbox en
+// like_count — géén track/gpx materialiseren voor honderden rijen die we
+// grotendeels weer wegfilteren.
+function selectPublicIds({ sport, q, limit }) {
   const where = ["r.visibility = 'public'"];
   const params = [];
   if (sport) { where.push('r.sport = ?'); params.push(sport); }
@@ -40,14 +43,30 @@ function selectPublic({ sport, q, limit }) {
     params.push(like, like);
   }
   return db.prepare(`
-    SELECT r.*, u.name AS owner_name,
+    SELECT r.id, r.bbox,
       (SELECT COUNT(*) FROM route_likes rl WHERE rl.route_id = r.id) AS like_count
     FROM routes r
-    JOIN users u ON u.id = r.user_id
     WHERE ${where.join(' AND ')}
     ORDER BY like_count DESC, r.created_at DESC
     LIMIT ?
   `).all(...params, limit);
+}
+
+// Fase 2: alleen voor de ≤limit gematchte rijen de smalle summary-kolommen
+// ophalen (zonder track/gpx) en serializen. Het al getelde like_count geven we
+// door aan routeSummary zodat likesFor de likes niet opnieuw telt.
+function hydrate(matched, viewerId) {
+  const stmt = db.prepare(
+    `SELECT ${ROUTE_SUMMARY_COLUMNS}, u.name AS owner_name FROM routes r JOIN users u ON u.id = r.user_id WHERE r.id = ?`
+  );
+  const rows = [];
+  const counts = [];
+  for (const m of matched) {
+    const row = stmt.get(m.id);
+    if (row) { rows.push(row); counts.push(m.like_count); }
+  }
+  ensurePreviews('routes', rows);
+  return rows.map((row, i) => routeSummary(row, viewerId, counts[i]));
 }
 
 // GET /api/discover?bbox=w,s,e,n&sport=&q=&limit=
@@ -63,12 +82,12 @@ discoverRouter.get('/', requireAuth, (req, res) => {
   const sport = SPORTS.has(req.query.sport) ? req.query.sport : null;
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
 
-  // Ruime selectie ophalen (al gesorteerd), daarna in JS filteren op
-  // bbox-overlap en pas dan afkappen op de gevraagde limiet.
-  const rows = selectPublic({ sport, q, limit: 500 });
+  // Ruime voorselectie ophalen (al gesorteerd, enkel id/bbox/like_count), daarna
+  // in JS filteren op bbox-overlap en pas dan afkappen op de gevraagde limiet.
+  const idRows = selectPublicIds({ sport, q, limit: 500 });
 
   const matched = [];
-  for (const row of rows) {
+  for (const row of idRows) {
     let bb = null;
     try { bb = row.bbox ? JSON.parse(row.bbox) : null; } catch { bb = null; }
     if (!Array.isArray(bb) || bb.length !== 4 || bb.some((n) => !Number.isFinite(n))) continue;
@@ -78,14 +97,14 @@ discoverRouter.get('/', requireAuth, (req, res) => {
     }
   }
 
-  res.json({ routes: matched.map((row) => routeSummary(row, req.user.id)) });
+  res.json({ routes: hydrate(matched, req.user.id) });
 });
 
 // GET /api/discover/top?sport=
 discoverRouter.get('/top', requireAuth, (req, res) => {
   const sport = SPORTS.has(req.query.sport) ? req.query.sport : null;
-  const rows = selectPublic({ sport, q: '', limit: 10 });
-  res.json({ routes: rows.map((row) => routeSummary(row, req.user.id)) });
+  const idRows = selectPublicIds({ sport, q: '', limit: 10 });
+  res.json({ routes: hydrate(idRows, req.user.id) });
 });
 
 // ---- Aanbevolen (bewegwijzerd) ---------------------------------------------
@@ -94,6 +113,7 @@ discoverRouter.get('/top', requireAuth, (req, res) => {
 // Enkel wandelen (route=hiking|foot) en mtb (route=mtb) hebben zulke takken.
 
 const AANBEVOLEN_TTL = 6 * 3600_000;               // 6 uur cache per bbox+sport
+const AANBEVOLEN_MAX = 500;                         // harde grens tegen onbegrensde groei
 const aanbevolenCache = new Map();                 // key -> { t, data }
 const AFSTAND = { wandelen: [4, 35], mtb: [10, 60] }; // toegelaten km-bereik
 
@@ -152,7 +172,7 @@ discoverRouter.get('/aanbevolen', requireAuth, async (req, res) => {
   // Fietsen kent hier geen bewegwijzerde tak -> meteen leeg (en gecachet).
   if (!wilWandel && !wilMtb) {
     const leeg = { aanbevolen: { wandelen: [], mtb: [] } };
-    aanbevolenCache.set(cacheKey, { t: Date.now(), data: leeg });
+    cacheSet(aanbevolenCache, cacheKey, { t: Date.now(), data: leeg }, { max: AANBEVOLEN_MAX, ttl: AANBEVOLEN_TTL });
     return res.json(leeg);
   }
 
@@ -212,6 +232,6 @@ discoverRouter.get('/aanbevolen', requireAuth, async (req, res) => {
     .map(({ _score, _zwaar, _nabij, ...rest }) => rest);
 
   const result = { aanbevolen: { wandelen: top3(emmers.wandelen), mtb: top3(emmers.mtb) } };
-  aanbevolenCache.set(cacheKey, { t: Date.now(), data: result });
+  cacheSet(aanbevolenCache, cacheKey, { t: Date.now(), data: result }, { max: AANBEVOLEN_MAX, ttl: AANBEVOLEN_TTL });
   res.json(result);
 });
