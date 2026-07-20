@@ -20,7 +20,7 @@ interface GeoResult { name: string; lat: number; lon: number }
 type Tab = 'area' | 'top';
 
 // Aanbevolen bewegwijzerde route (grondstof uit OpenStreetMap).
-interface RecItem { id: number; name: string | null; ref: string | null; distanceKm: number | null; sport: Sport }
+interface RecItem { id: number; name: string | null; ref: string | null; distanceKm: number | null; vanCentrumKm: number | null; sport: Sport }
 interface AanbevolenResponse { aanbevolen: { wandelen: RecItem[]; mtb: RecItem[] } }
 interface KnownRoute { name: string; ref: string | null; track: TrackPoint[]; note?: string }
 
@@ -323,8 +323,11 @@ export function discoverView(container: HTMLElement): () => void {
           el('span', { class: 'rec-name' }, naam),
           rec.ref ? el('span', { class: 'badge badge-neutral rec-ref' }, rec.ref) : null,
         ),
-        rec.distanceKm != null
-          ? el('div', { class: 'rec-dist' }, `± ${String(rec.distanceKm).replace('.', ',')} km`)
+        rec.distanceKm != null || rec.vanCentrumKm != null
+          ? el('div', { class: 'rec-dist' }, [
+              rec.distanceKm != null ? `± ${String(rec.distanceKm).replace('.', ',')} km` : null,
+              rec.vanCentrumKm != null ? `op ${String(rec.vanCentrumKm).replace('.', ',')} km` : null,
+            ].filter(Boolean).join(' · '))
           : null,
       ),
     );
@@ -333,6 +336,8 @@ export function discoverView(container: HTMLElement): () => void {
 
   async function loadAanbevolen(bbox: string, seq: number) {
     const params = new URLSearchParams({ bbox });
+      const c = map.getCenter();
+      params.set('center', `${c.lng.toFixed(5)},${c.lat.toFixed(5)}`);
     if (sport) params.set('sport', sport);
     try {
       const { aanbevolen } = await api.get<AanbevolenResponse>(`/api/discover/aanbevolen?${params}`);

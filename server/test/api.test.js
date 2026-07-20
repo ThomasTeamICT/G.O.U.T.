@@ -603,3 +603,20 @@ test('ontdek: aanbevolen bewegwijzerd (OSM) — sortering, ≤3 per sport, filte
   assert.equal(r.data.aanbevolen.wandelen.length, 0);
   assert.equal(r.data.aanbevolen.mtb.length, 0);
 });
+
+test('aanbevolen: nabijheid weegt mee bij zoeken op een dorp', async () => {
+  const c = client();
+  await c.req('POST', '/api/auth/register', { email: 'dorp@test.be', name: 'Dorpszoeker', password: 'wachtwoord1' });
+
+  // Zonder centrum wint de hoogste score (Kravaalbos-lus, score 5).
+  let r = await c.req('GET', '/api/discover/aanbevolen?bbox=3.9,50.8,4.3,51.0&sport=wandelen');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.aanbevolen.wandelen[0].name, 'Kravaalbos-lus');
+
+  // Met centrum bij het Dendervallei-voetpad (4.05, 50.94) wint nabijheid.
+  r = await c.req('GET', '/api/discover/aanbevolen?bbox=3.9,50.8,4.3,51.0&sport=wandelen&center=4.05,50.94');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.aanbevolen.wandelen[0].name, 'Dendervallei-voetpad', 'dichtstbijzijnde relevante route eerst');
+  assert.ok(r.data.aanbevolen.wandelen[0].vanCentrumKm < 2, 'afstand tot centrum meegegeven');
+  assert.ok(r.data.aanbevolen.wandelen[1].vanCentrumKm > r.data.aanbevolen.wandelen[0].vanCentrumKm);
+});

@@ -11,6 +11,7 @@ import { db } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { routeSummary } from '../serialize.js';
 import { overpassQuery, KnownRouteError } from '../knownroutes.js';
+import { haversine } from '../geo.js';
 
 export const discoverRouter = Router();
 
@@ -136,7 +137,15 @@ discoverRouter.get('/aanbevolen', requireAuth, async (req, res) => {
   const wilWandel = gevraagd === null || gevraagd === 'wandelen';
   const wilMtb = gevraagd === null || gevraagd === 'mtb';
 
-  const cacheKey = `${round2(w)},${round2(s)},${round2(e)},${round2(n)}|${gevraagd || 'beide'}`;
+  // Optioneel middelpunt (bv. het gezochte dorp): nabijheid weegt dan mee.
+  let centrum = null;
+  if (typeof req.query.center === 'string') {
+    const c = req.query.center.split(',').map(Number);
+    if (c.length === 2 && c.every(Number.isFinite)) centrum = c; // [lon, lat]
+  }
+
+  const cacheKey = `${round2(w)},${round2(s)},${round2(e)},${round2(n)}|${gevraagd || 'beide'}|` +
+    (centrum ? `${round2(centrum[0])},${round2(centrum[1])}` : '-');
   const hit = aanbevolenCache.get(cacheKey);
   if (hit && Date.now() - hit.t < AANBEVOLEN_TTL) return res.json(hit.data);
 
@@ -174,22 +183,33 @@ discoverRouter.get('/aanbevolen', requireAuth, async (req, res) => {
       const [lo, hi] = AFSTAND[sp];
       if (afstandKm < lo || afstandKm > hi) continue; // afstand-tag buiten bereik = weg
     }
+    let nabijKm = null;
+    if (centrum && el.center) {
+      nabijKm = haversine(centrum[0], centrum[1], el.center.lon, el.center.lat) / 1000;
+    }
     emmers[sp].push({
       id: el.id,
       name: el.tags.name || null,
       ref: el.tags.ref || null,
       distanceKm: afstandKm != null ? Math.round(afstandKm * 10) / 10 : null,
+      vanCentrumKm: nabijKm != null ? Math.round(nabijKm * 10) / 10 : null,
       sport: sp,
       _score: scoreRelatie(el.tags, afstandKm),
       _zwaar: afstandKm ?? 0,
+      _nabij: nabijKm,
     });
   }
 
-  // Sorteren: score desc, dan afstand desc (zwaarder/langer eerst), top 3.
+  // Sorteren: score met nabijheidskorting (elke ~4 km van het zoekpunt kost
+  // een punt), dichtstbij eerst bij gelijke stand, dan zwaarder/langer.
+  const effectief = (x) => x._score - (x._nabij != null ? x._nabij / 4 : 0);
   const top3 = (lijst) => lijst
-    .sort((a, b) => b._score - a._score || b._zwaar - a._zwaar)
+    .sort((a, b) =>
+      effectief(b) - effectief(a) ||
+      ((a._nabij ?? Infinity) - (b._nabij ?? Infinity)) ||
+      b._zwaar - a._zwaar)
     .slice(0, 3)
-    .map(({ _score, _zwaar, ...rest }) => rest);
+    .map(({ _score, _zwaar, _nabij, ...rest }) => rest);
 
   const result = { aanbevolen: { wandelen: top3(emmers.wandelen), mtb: top3(emmers.mtb) } };
   aanbevolenCache.set(cacheKey, { t: Date.now(), data: result });
