@@ -304,7 +304,13 @@ export function planView(
     // Shift+klik forceert altijd een nieuw eindpunt.
     if (waypoints.length >= 2 && !e.originalEvent.shiftKey) {
       const buurt = dichtsteLeg(e.latlng.lng, e.latlng.lat);
-      if (buurt && buurt.distM < 1000) {
+      // Tolerantie schaalt mee met het zoomniveau: wat er op het SCHERM
+      // dichtbij uitziet (±35 px), telt als dichtbij — ingezoomd op een dorp
+      // is dat ~100 m, uitgezoomd op de hele tocht gerust een paar km.
+      const mPerPx = 40075016.686 * Math.abs(Math.cos((e.latlng.lat * Math.PI) / 180)) /
+        Math.pow(2, map.getZoom() + 8);
+      const tolM = Math.min(20000, Math.max(1000, 35 * mPerPx));
+      if (buurt && buurt.distM < tolM) {
         insertVia(buurt.leg, e.latlng.lng, e.latlng.lat);
         toast('Tussenstop toegevoegd. (Shift+klik = nieuw eindpunt)');
         return;
