@@ -110,7 +110,8 @@ body.live-open .route-detail-map .leaflet-control-container { display: none; }
 .live-top {
   position: absolute; top: 0; left: 0; right: 0; z-index: 20;
   display: flex; justify-content: space-between; align-items: flex-start;
-  padding: .9rem; pointer-events: none;
+  padding: calc(.9rem + env(safe-area-inset-top, 0px)) .9rem .9rem; /* Fix 10: sluitknop onder de notch vandaan */
+  pointer-events: none;
 }
 .live-top > * { pointer-events: auto; }
 .live-top .btn-icon, .live-top .btn { box-shadow: var(--shadow); }
@@ -123,7 +124,8 @@ body.live-open .route-detail-map .leaflet-control-container { display: none; }
 .live-panel {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 20;
   background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: var(--shadow-pop);
-  padding: 1rem 1.1rem 1.3rem; max-width: 640px; margin: 0 auto;
+  padding: 1rem 1.1rem calc(1.3rem + env(safe-area-inset-bottom, 0px)); /* Fix 2/10 */
+  max-width: 640px; margin: 0 auto;
 }
 .live-progress { height: 9px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
 .live-progress > i { display: block; height: 100%; background: var(--accent); width: 0%; transition: width .4s; }
@@ -150,8 +152,10 @@ body.live-open .toasts { bottom: 15rem; }
 .shared-cta .btn { justify-content: center; }
 
 @media (max-width: 760px) {
-  .detail-map.route-detail-map { height: 85vh; min-height: 260px; }
-  .shared-map { height: 40vh; }
+  /* Kaart korter zodat de statistieken en de knoppenrij (Start live!) direct
+     zichtbaar zijn onder de vouw (Fix 7). */
+  .detail-map.route-detail-map { height: 55vh; height: 55svh; min-height: 260px; }
+  .shared-map { height: 40vh; height: 40svh; }
   .page-head .head-actions .btn span.lbl { display: none; }
 }
 

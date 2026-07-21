@@ -52,7 +52,7 @@
 
 /* rechtsboven: knoppenrij — met nette tussenruimte t.o.v. de Leaflet-
    lagencontrole die rechtsboven in de hoek zit (D2). */
-.plan-topright { position: absolute; top: 12px; right: 72px; z-index: 800; }
+.plan-topright { position: absolute; top: 12px; right: 78px; z-index: 800; }
 .plan-actions { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
 .plan-actions .btn-icon { box-shadow: var(--shadow); }
 .btn-icon.active { background: var(--green); border-color: var(--green); color: #fff; }
@@ -160,7 +160,7 @@
 
   /* knoppenrij: compact, kleinere iconen, mag over meerdere rijen,
      netjes vrij van de lagencontrole rechtsboven */
-  .plan-topright { top: 10px; right: 52px; }
+  .plan-topright { top: 10px; right: 64px; }
   .plan-actions { flex-wrap: wrap; gap: .3rem; max-width: 108px; justify-content: flex-end; }
   .plan-actions .btn-icon { padding: .42rem; }
   .plan-actions .btn-icon svg { width: 16px; height: 16px; }
@@ -189,7 +189,7 @@
   .plan-stats {
     left: 0; right: 0; bottom: 0; width: 100%; margin: 0;
     border-radius: var(--radius) var(--radius) 0 0;
-    padding: .55rem .7rem;
+    padding: .55rem .7rem calc(.55rem + env(safe-area-inset-bottom, 0px)); /* Fix 2 */
     box-shadow: 0 -2px 10px rgba(38, 41, 31, .12);
   }
   .plan-stats-row { gap: .35rem .6rem; }
@@ -285,7 +285,7 @@
 @media (max-width: 760px) {
   .plan-etap {
     left: 8px; right: 8px; width: auto;
-    max-height: 40vh;
+    max-height: 40vh; max-height: 40svh; /* svh wint waar ondersteund */
   }
   .plan-part-btn { padding: .4rem .55rem; }
 }

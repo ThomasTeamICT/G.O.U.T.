@@ -108,8 +108,9 @@ export function renderElevation(
     return { i, frac, distM, rect };
   }
 
-  const onMove = (ev: MouseEvent) => {
-    const { i, frac, distM, rect } = locate(ev.clientX);
+  // Eén afleespunt tonen op basis van een X-coördinaat (muis én touch delen dit).
+  function updateAt(clientX: number) {
+    const { i, frac, distM, rect } = locate(clientX);
     const x = frac * W;
     cursor.setAttribute('x1', String(x));
     cursor.setAttribute('x2', String(x));
@@ -119,20 +120,35 @@ export function renderElevation(
     const km = (distM / 1000).toFixed(1).replace('.', ',');
     tip.textContent = `${km} km · ${Math.round(fill[i])} m`;
     opts.onHover?.({ lat: track[i][1], lon: track[i][0], distM, ele: fill[i] });
-  };
+  }
+  const onMove = (ev: MouseEvent) => updateAt(ev.clientX);
   const onLeave = () => {
     cursor.setAttribute('x1', '-10');
     cursor.setAttribute('x2', '-10');
     tip.style.display = 'none';
     opts.onHover?.(null);
   };
+  // Touch: dezelfde afleeswaarde/cursor tonen. preventDefault houdt de pagina
+  // stil terwijl je met je vinger over de grafiek veegt (Fix 6).
+  const onTouch = (ev: TouchEvent) => {
+    const t = ev.touches[0];
+    if (!t) return;
+    ev.preventDefault();
+    updateAt(t.clientX);
+  };
   svg.addEventListener('mousemove', onMove);
   svg.addEventListener('mouseleave', onLeave);
+  svg.addEventListener('touchstart', onTouch, { passive: false });
+  svg.addEventListener('touchmove', onTouch, { passive: false });
+  svg.addEventListener('touchend', onLeave);
 
   return {
     destroy() {
       svg.removeEventListener('mousemove', onMove);
       svg.removeEventListener('mouseleave', onLeave);
+      svg.removeEventListener('touchstart', onTouch);
+      svg.removeEventListener('touchmove', onTouch);
+      svg.removeEventListener('touchend', onLeave);
       container.innerHTML = '';
     },
   };

@@ -117,7 +117,8 @@ main.page.profile-page { max-width: 560px; }
 .field-muted .input:disabled, .input[readonly] { color: var(--muted); background: var(--surface-2); cursor: default; }
 
 @media (max-width: 760px) {
-  .detail-map { height: 40vh; min-height: 260px; }
+  /* Activiteitdetail: kaart al compact (40svh) — stats/hoogteprofiel blijven zichtbaar (Fix 7). */
+  .detail-map { height: 40vh; height: 40svh; min-height: 260px; }
   .sport-cards { grid-template-columns: 1fr; }
   .record-cards { grid-template-columns: 1fr; }
   .page-head .head-actions .btn span.lbl { display: none; }

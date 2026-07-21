@@ -23,13 +23,14 @@
   --danger: #b3341f;
   --radius: 14px;
   --radius-s: 9px;
+  --topbar-h: 57px; /* hoogte sticky topbar; kaartpagina's = 100dvh - deze */
   --shadow: 0 1px 2px rgba(38, 41, 31, .06), 0 6px 24px -8px rgba(38, 41, 31, .14);
   --shadow-pop: 0 4px 10px rgba(38, 41, 31, .10), 0 18px 50px -12px rgba(38, 41, 31, .28);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body { min-height: 100%; }
 body {
   margin: 0;
   font-family: var(--font);
@@ -39,7 +40,7 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
-#app { min-height: 100vh; display: flex; flex-direction: column; }
+#app { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 
 h1, h2, h3 { line-height: 1.15; margin: 0 0 .5rem; letter-spacing: -0.02em; }
 h1 { font-size: 1.9rem; font-weight: 800; }
@@ -159,6 +160,9 @@ textarea.input { resize: vertical; min-height: 70px; }
 }
 .topbar nav a:hover { background: rgba(38,41,31,.06); }
 .topbar nav a.active { background: var(--green); color: #fff; }
+/* Desktop toont het volledige tekstlabel als pil; icoon + kort label zijn mobiel. */
+.topbar nav a svg { display: none; }
+.topbar nav a .nav-short { display: none; }
 .topbar .avatar {
   width: 36px; height: 36px; border-radius: 999px; border: none; cursor: pointer;
   color: #fff; font-weight: 800; font-size: .95rem; display: grid; place-items: center;
@@ -179,7 +183,13 @@ textarea.input { resize: vertical; min-height: 70px; }
 
 /* ---------- layout ---------- */
 main.page { flex: 1; width: 100%; max-width: 1060px; margin: 0 auto; padding: 1.6rem 1.2rem 3rem; }
-main.page-wide { flex: 1; width: 100%; padding: 0; display: flex; min-height: 0; }
+main.page-wide {
+  flex: 1; width: 100%; padding: 0; display: flex; min-height: 0;
+  /* Kaartpagina's (planner, Ontdek) krijgen hun eigen volle-hoogte-layout,
+     los van de natuurlijke documentscroll van #app (Fix 1). */
+  height: calc(100vh - var(--topbar-h));
+  height: calc(100dvh - var(--topbar-h));
+}
 .page-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
 .page-head h1 { margin: 0; flex: 1; }
 .page-sub { color: var(--muted); margin-top: -.9rem; margin-bottom: 1.2rem; }
@@ -295,22 +305,59 @@ main.page-wide { flex: 1; width: 100%; padding: 0; display: flex; min-height: 0;
 .sport-picker button.active { background: var(--green); color: #fff; }
 
 /* ---------- responsief ---------- */
+
+/* Tablet & mobiel: compacte topbar met icoon-boven-label-navigatie zodat alle
+   vijf secties zonder horizontaal scrollen in beeld passen én tikbaar zijn (Fix 5). */
 @media (max-width: 860px) {
-  .topbar { padding: .5rem .8rem; gap: .4rem; overflow: hidden; flex-wrap: nowrap; }
-  .topbar .logo { flex: none; }
+  :root { --topbar-h: 60px; } /* topbar is hier ~60px; kaartpagina's = 100dvh - deze */
+
+  .topbar { padding: .42rem .55rem; gap: .3rem; flex-wrap: nowrap; }
+  .topbar .logo { flex: none; margin-right: .2rem; min-height: 44px; align-items: center; }
   .topbar .logo b { font-size: 1.05rem; }
   .topbar .logo span { display: none; }
-  /* alleen de navigatie scrolt; logo, GPX-knop en avatar blijven altijd in beeld */
-  .topbar nav { flex: 1 1 0; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-  .topbar nav::-webkit-scrollbar { display: none; }
-  .topbar nav a { padding: .4rem .55rem; font-size: .85rem; white-space: nowrap; }
+
+  .topbar nav { flex: 1 1 auto; min-width: 0; gap: .1rem; justify-content: space-between; overflow: visible; }
+  .topbar nav a {
+    flex: 1 1 0; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    padding: .3rem .1rem; border-radius: 12px;
+    font-size: .62rem; font-weight: 700; line-height: 1.05; white-space: nowrap;
+    min-height: 44px; /* touch-doel (Fix 4) */
+  }
+  .topbar nav a svg { display: block; width: 21px; height: 21px; }
+  .topbar nav a .nav-full { display: none; }
+  .topbar nav a .nav-short { display: block; }
+
   .topbar .btn-primary, .topbar .avatar { flex: none; }
   .topbar .gpx-label { display: none; }
   .topbar .btn-primary { padding: .5rem .6rem; }
-  .topbar .avatar { flex: none; }
+  .topbar .avatar { width: 44px; height: 44px; }
+
   .route-card { grid-template-columns: 84px 1fr; }
   .route-card .thumb { width: 84px; height: 84px; }
   .route-card .actions { grid-column: 1 / -1; justify-content: flex-end; }
   main.page { padding: 1rem .8rem 2.5rem; }
   h1 { font-size: 1.5rem; }
+}
+
+/* Smalle telefoons: de GPX-importknop in de topbar valt weg (import blijft
+   bereikbaar via 'Mijn routes') zodat de vijf tabs op 360px comfortabel passen. */
+@media (max-width: 560px) {
+  .topbar .btn-primary { display: none; }
+  .topbar .logo b { font-size: 1rem; }
+}
+
+/* Touch-doelen minstens 44px hoog op mobiel; desktop blijft compact (Fix 4). */
+@media (max-width: 760px) {
+  .chip { min-height: 44px; }
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 44px; }
+  .btn-icon { min-height: 44px; min-width: 44px; }
+  .swatch-row .swatch { width: 44px; height: 44px; }
+  .input, select.input { min-height: 44px; }
+  .tabs button { min-height: 44px; }
+  .sport-picker button { min-height: 44px; }
+  .menu a, .menu button { min-height: 44px; }
+  /* Safe-area onderaan de topbar-dropdown (Fix 2). */
+  .menu { padding-bottom: calc(.35rem + env(safe-area-inset-bottom, 0px)); }
 }

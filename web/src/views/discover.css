@@ -93,18 +93,49 @@ main.page-wide.discover { display: flex; min-height: 0; }
 .map-holder .discover-search-here {
   position: absolute; bottom: 1.3rem; left: 50%; transform: translateX(-50%);
   z-index: 700; box-shadow: var(--shadow-pop);
+  padding-bottom: calc(.62rem + env(safe-area-inset-bottom, 0px)); /* Fix 2 */
 }
 
 .discover-error { text-align: center; color: var(--danger); padding: 2rem 1rem; font-weight: 600; }
 
-/* ---------- responsief: kaart boven, paneel eronder ---------- */
+/* ---------- responsief (Fix 3): zoekbalk + tabs BOVEN de kaart, kaart in het
+   midden, resultatenlijst vult de rest (minstens 3 kaartjes zichtbaar). ---------- */
 @media (max-width: 760px) {
   main.page-wide.discover { flex-direction: column; }
-  main.page-wide.discover .map-holder { order: -1; flex: none; height: 45vh; }
-  .discover-panel {
-    width: 100%; flex: 1;
-    border-right: none; border-top: 1px solid var(--line);
+  /* Het paneel lost op in de kolom zodat zijn kop, subtekst en resultatenlijst
+     zich rond de kaart kunnen herschikken met 'order'. */
+  .discover-panel { display: contents; }
+
+  .discover-head {
+    order: 0; flex: none; background: var(--bg);
+    position: sticky; top: 0; z-index: 810;
+    padding: .5rem .8rem .5rem; gap: .45rem; border-bottom: 1px solid var(--line);
   }
+  .discover-head h2 { display: none; } /* dubbel met de topbar-tab 'Ontdek' */
+  .discover-head .tabs { margin-bottom: 0; } /* de .tabs-basisregel plakt er anders 1.2rem onder */
+  /* filters op één scrollbare rij i.p.v. hoge wrap */
+  .discover-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .discover-filters::-webkit-scrollbar { display: none; }
+  .discover-filters .chip { flex: none; }
+
+  main.page-wide.discover .map-holder {
+    order: 1; flex: none; min-height: 190px;
+    height: 32vh; height: 32svh; /* svh wint waar ondersteund; vh = fallback */
+  }
+
+  .discover-sub { order: 2; padding: .5rem .8rem .15rem; }
+  .discover-results {
+    order: 3; flex: 1 1 auto; min-height: 0; overflow-y: auto;
+    padding: .55rem .8rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* compactere resultaatkaartjes zodat er zeker >= 3 in beeld passen (360x780) */
+  .discover-card { padding: .5rem .55rem; gap: .6rem; }
+  .dc-thumb { width: 60px; height: 60px; }
+  /* touch-doelen (Fix 4) */
+  .dc-like { min-height: 44px; }
+  .rec-card { min-height: 44px; }
+  .discover-drop-item { min-height: 44px; }
 }
 
 /* ---------- highlights-overlay ---------- */

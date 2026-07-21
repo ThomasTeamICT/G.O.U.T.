@@ -28,7 +28,16 @@ const app = document.getElementById('app')!;
 const topbarHolder = el('div', {});
 const viewHolder = el('div', { style: 'display:flex;flex-direction:column;flex:1;min-height:0;' });
 app.append(topbarHolder, viewHolder);
-app.style.cssText = 'display:flex;flex-direction:column;min-height:100vh;height:100vh;';
+app.style.cssText = 'display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;';
+
+// Navigatielink: icoon + volledig label (desktop = tekstpil) én kort label (mobiel = icoon boven kort label).
+function navLink(href: string, icon: string, full: string, short: string): HTMLElement {
+  return el('a', { href },
+    svgEl(icon),
+    el('span', { class: 'nav-full' }, full),
+    el('span', { class: 'nav-short' }, short),
+  );
+}
 
 function renderTopbar() {
   topbarHolder.innerHTML = '';
@@ -42,11 +51,11 @@ function renderTopbar() {
   const bar = el('div', { class: 'topbar' },
     el('a', { class: 'logo', href: '#/routes' }, el('b', {}, 'G.O.U.T.'), el('span', {}, 'gewoon op uw tempo')),
     el('nav', {},
-      el('a', { href: '#/plan' }, 'Plannen'),
-      el('a', { href: '#/discover' }, 'Ontdek'),
-      el('a', { href: '#/routes' }, 'Mijn routes'),
-      el('a', { href: '#/activities' }, 'Activiteiten'),
-      el('a', { href: '#/stats' }, 'Statistieken'),
+      navLink('#/plan', icons.map, 'Plannen', 'Plan'),
+      navLink('#/discover', icons.compass, 'Ontdek', 'Ontdek'),
+      navLink('#/routes', icons.route, 'Mijn routes', 'Routes'),
+      navLink('#/activities', icons.clock, 'Activiteiten', 'Activ.'),
+      navLink('#/stats', icons.stats, 'Statistieken', 'Stats'),
     ),
     el('button', {
       class: 'btn btn-primary btn-sm', onclick: () => navigate('/routes?import=1'),
