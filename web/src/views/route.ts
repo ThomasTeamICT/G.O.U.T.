@@ -17,6 +17,7 @@ import {
 import { renderElevation } from '../lib/elevation';
 import { cumulative, ascentDescent, nearestPointIndex, haversine } from '../lib/geo';
 import { estimateDuration } from '../lib/estimate';
+import { makeRouteMatcher } from '../lib/routematch';
 import type { RouteFull, RouteSummary, TrackPoint } from '../types';
 
 /* =========================================================================
@@ -540,6 +541,7 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
   let posMarker: L.Marker | null = null;
   let accCircle: L.Circle | null = null;
   let doneLine: L.Polyline | null = null;
+  let actualLine: L.Polyline | null = null; // effectief afgelegd gps-spoor
 
   let follow = true;
   let recording = false;
@@ -601,20 +603,23 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
   ));
 
   /* --- geolocatie --- */
-  // Voortgang mag niet naar de heenweg terugspringen op heen-en-terug-stukken:
-  // zoek rond de vorige positie en val alleen globaal terug als we ver van de route zijn.
+  // Voortgang-matcher: kiest uit de dichtstbijzijnde kandidaten (binnen een
+  // kleine marge) diegene met de kleinste voortgangssprong t.o.v. de vorige
+  // positie. Zo springt de voortgang nooit onverklaard vooruit — een lus
+  // (start≈einde) of heen-en-terug matcht niet foutief het einde. Details:
+  // web/src/lib/routematch.ts.
+  const matchOpRoute = makeRouteMatcher(track, cum);
   let lastProgressIdx = 0;
-  function nearestOnRoute(lon: number, lat: number) {
-    const start = Math.max(0, lastProgressIdx - 30);
-    const end = Math.min(track.length - 1, lastProgressIdx + 400);
-    let best = lastProgressIdx, bestD = Infinity;
-    for (let i = start; i <= end; i++) {
-      const d = haversine(track[i][0], track[i][1], lon, lat);
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    if (bestD > 250) return nearestPointIndex(track, lon, lat);
-    return { index: best, distM: bestD };
-  }
+  let volgklaar = false;       // eerste voldoende nauwkeurige fix verwerkt?
+  const ACCURACY_LIMIT = 150;  // m — grovere fixes tellen niet mee (voortgang, opname, spoor)
+
+  // Kleur van het EFFECTIEF afgelegde spoor (magenta/paars): contrasteert sterk
+  // met de blauwe geplande route (#3557e0) én de oranje "afgelegd op de route"-
+  // lijn (#e8590c), en blijft ook voor kleurenblinden onderscheidbaar (heel
+  // andere tint dan blauw of oranje). Dunner en licht doorschijnend zodat de
+  // geplande route eronder leesbaar blijft.
+  const ACTUAL_STYLE: L.PolylineOptions = { color: '#b5179e', weight: 3.5, opacity: 0.85 };
+  let lastActualPt: TrackPoint | null = null;
 
   function onPos(pos: GeolocationPosition) {
     if (closed) return;
@@ -623,13 +628,34 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
     const acc = pos.coords.accuracy || 12;
     const alt = pos.coords.altitude;
 
+    // Marker en nauwkeurigheidscirkel bewegen altijd mee (ook bij een grove fix).
     if (!posMarker) posMarker = L.marker([lat, lon], { icon: positionIcon() }).addTo(liveMap);
     else posMarker.setLatLng([lat, lon]);
     if (!accCircle) accCircle = L.circle([lat, lon], { radius: acc, color: '#2b6fe0', weight: 1, fillColor: '#2b6fe0', fillOpacity: 0.12 }).addTo(liveMap);
     else { accCircle.setLatLng([lat, lon]); accCircle.setRadius(acc); }
     if (follow) liveMap.setView([lat, lon]);
 
-    const { index, distM } = nearestOnRoute(lon, lat);
+    // Effectief afgelegd spoor: loopt ALTIJD mee tijdens live volgen (ook zonder
+    // opname). Zelfde hygiëne als de opname: grove fixes overslaan, en pas een
+    // punt toevoegen bij >= 2 m verplaatsing. Groeit incrementeel (addLatLng).
+    if (acc <= ACCURACY_LIMIT && (!lastActualPt || haversine(lastActualPt[0], lastActualPt[1], lon, lat) >= 2)) {
+      if (!actualLine) actualLine = L.polyline([[lat, lon]], ACTUAL_STYLE).addTo(liveMap);
+      else actualLine.addLatLng([lat, lon]);
+      lastActualPt = [lon, lat];
+    }
+
+    // Grove eerste fix (bv. wifi-lokalisatie, honderden meters afwijking): tot
+    // we één voldoende nauwkeurige fix hebben geen voortgang matchen — anders
+    // gokt die grove fix een willekeurige plek op de route (en bij een lus
+    // meteen "voltooid").
+    if (!volgklaar && acc > ACCURACY_LIMIT) {
+      warn.style.display = '';
+      warn.textContent = 'Wachten op een nauwkeurige locatie…';
+      return;
+    }
+    volgklaar = true;
+
+    const { index, distM } = matchOpRoute(lon, lat, lastProgressIdx);
     lastProgressIdx = index;
     const done = cum[index];
     const togo = Math.max(0, total - done);
@@ -658,7 +684,9 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
     vAsc.textContent = fmtM(restAsc);
     vEta.textContent = fmtDur(estimateDuration(route.sport, togo, restAsc));
 
-    if (recording) {
+    // Opnamehygiëne: een grove fix (wifi-teleport van honderden meters) hoort
+    // niet in je activiteit. De marker mag wel bewegen (zie boven).
+    if (recording && acc <= ACCURACY_LIMIT) {
       const t = pos.timestamp ? Math.round(pos.timestamp / 1000) : Math.round(Date.now() / 1000);
       const last = recorded[recorded.length - 1];
       if (!last || haversine(last[0], last[1], lon, lat) >= 2) {
@@ -722,6 +750,7 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
     if (watchId != null) navigator.geolocation.clearWatch(watchId);
     if (save && recording) finishRecording();
     document.body.classList.remove('live-open');
+    if (actualLine) { actualLine.remove(); actualLine = null; }
     liveMap.remove();
     overlay.remove();
     onClose();

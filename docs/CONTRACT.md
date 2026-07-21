@@ -319,3 +319,36 @@ In de planner, wanneer een bekende route geladen is ('geladen route'-modus in pl
   samengestelde track van die dag en de bijhorende waypoints (grenspunt telt als
   eindpunt van dag i en startpunt van dag i+1). Undo-systeem dekt het promoveren/
   degraderen van markers (pushUndo).
+
+## Live volgen (route.ts `startLive` + `web/src/lib/routematch.ts`)
+
+Onderweg-modus met GPS, voortgang en opname. De voortgang-matcher volgt één
+principe: **de voortgang mag nooit onverklaard vooruitspringen.**
+
+- **Kandidaatkeuze** (`makeRouteMatcher`): per GPS-fix bepalen we het
+  dichtstbijzijnde routepunt (`bestD`) en verzamelen we ALLE kandidaten binnen
+  de marge `d <= max(bestD + 50 m, bestD * 1.3)`. Uit die kandidaten kiezen we
+  degene met de kleinste sprong in cumulatieve afstand t.o.v. de vorige positie
+  (`lastProgressIdx`). Zo blijft bij een **lus** (start ≈ einde) of een
+  **heen-en-terug** (twee routepunten op exact dezelfde plek) vanzelf de juiste
+  "tweeling" plakken. Bij de allereerste fix is de referentie index 0, dus wint
+  de **startkant** een start≈einde-tie automatisch (lost de "meteen 100% voltooid
+  bij een lus die thuis start"-bug op). Een lichte straf op achteruitgaan
+  (`BACKWARD_PENALTY`) laat een heen-en-terug bij de keerpunt-vouw netjes vooruit
+  overgaan i.p.v. terug de heenweg op.
+- **Accuracy-drempel 150 m**: zolang er nog geen betrouwbare fix is en
+  `accuracy > 150 m`, bewegen de positiemarker en nauwkeurigheidscirkel wél mee
+  maar wordt er GEEN voortgang gematcht (een grove eerste wifi-fix gokt anders
+  een willekeurige plek). Fixes met `accuracy > 150 m` gaan ook niet in de opname.
+- **Prestatie**: een volledige scan is prima tot ~20.000 punten; daarboven eerst
+  een grove pass (~10.000 samples) en lokaal verfijnen. Gemeten op 30.000 punten:
+  ~0,6 ms per fix (median).
+- **Effectief afgelegd spoor**: naast de blauwe geplande route (`#3557e0`) en de
+  oranje "afgelegd op de route"-lijn (`TRACK_DONE_STYLE`, `#e8590c`) tekent live
+  volgen ook het écht afgelegde gps-spoor als aparte magenta/paarse polyline
+  (`#b5179e`, dunner + licht doorschijnend). Die kleur contrasteert met beide
+  én blijft voor kleurenblinden onderscheidbaar. Het spoor loopt altijd mee
+  (ook zonder opname), gebruikt dezelfde hygiëne als de opname (accuracy > 150 m
+  overslaan, punt pas toevoegen bij ≥ 2 m verplaatsing) en groeit incrementeel
+  (`polyline.addLatLng`). Zo zie je op de kaart het verschil tussen het plan en
+  wat je echt liep. Alle live-lagen worden opgeruimd bij het sluiten.

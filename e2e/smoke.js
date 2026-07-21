@@ -99,6 +99,54 @@ try {
   await page.waitForSelector('main', { timeout: 5000 });
   ok('ontdek, statistieken en activiteiten laden');
 
+  step('Live volgen met gesimuleerde GPS');
+  const ctx = page.context();
+  await ctx.grantPermissions(['geolocation'], { origin: BASE });
+  // Lus van ~4,5 km waarvan start=einde op 'huis' H (4.18, 50.93).
+  const corners = [[4.18, 50.93], [4.18, 50.94], [4.196, 50.94], [4.196, 50.93], [4.18, 50.93]];
+  const loop = [];
+  for (let e = 0; e < 4; e++) {
+    const a = corners[e], b = corners[e + 1];
+    for (let i = 0; i < 40; i++) { const f = i / 40; loop.push([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, 20]); }
+  }
+  loop.push([4.18, 50.93, 20]);
+  const made = await page.request.post(`${BASE}/api/routes`, { data: { name: 'Live-lus', sport: 'wandelen', track: loop } });
+  if (!made.ok()) throw new Error('kon live-testroute niet maken');
+  const liveId = (await made.json()).route.id;
+
+  // Eerste fix: thuis, net iets dichter bij het laatste segment dan bij het eerste.
+  await ctx.setGeolocation({ latitude: 50.92975, longitude: 4.1810, accuracy: 20 });
+  await page.goto(`${BASE}/#/route/${liveId}`);
+  await page.waitForSelector('text=Start live', { timeout: 8000 });
+  await page.click('text=Start live');
+  await page.waitForSelector('.live-panel', { timeout: 8000 });
+  const pctNow = () => page.evaluate(() => {
+    const c = [...document.querySelectorAll('.live-stats > div')].find((d) => d.textContent.includes('Voltooid'));
+    return c ? (parseInt(c.querySelector('.v').textContent, 10) || 0) : -1;
+  });
+  await page.waitForFunction(() => {
+    const c = [...document.querySelectorAll('.live-stats > div')].find((d) => d.textContent.includes('Voltooid'));
+    return c && /\d+%/.test(c.querySelector('.v').textContent);
+  }, { timeout: 5000 });
+  const startPct = await pctNow();
+  if (startPct < 0 || startPct >= 10) throw new Error(`lus-bug: voortgang sprong naar ${startPct}% bij de start`);
+  ok(`lus start op ${startPct}% (geen valse voltooiing)`);
+
+  // Een paar stappen vooruit langs de lus -> voortgang stijgt, spoor groeit mee.
+  for (const i of [8, 16, 24, 32]) {
+    await ctx.setGeolocation({ latitude: loop[i][1], longitude: loop[i][0], accuracy: 15 });
+    await page.waitForTimeout(350);
+  }
+  const midPct = await pctNow();
+  if (midPct <= startPct) throw new Error(`voortgang steeg niet (${startPct}% -> ${midPct}%)`);
+  const spoorPts = await page.evaluate(() => {
+    const el = document.querySelector('.leaflet-overlay-pane path[stroke="#b5179e"]');
+    return el ? ((el.getAttribute('d') || '').match(/[ML]/g) || []).length : 0;
+  });
+  if (spoorPts < 2) throw new Error(`afgelegd spoor niet getekend (${spoorPts} punten)`);
+  ok(`voortgang steeg naar ${midPct}%, afgelegd spoor getekend (${spoorPts} punten)`);
+
+
   await browser.close();
 } catch (e) {
   console.error('\n✖ E2E FAALDE:', e.message);
