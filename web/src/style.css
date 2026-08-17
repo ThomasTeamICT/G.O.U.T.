@@ -184,9 +184,12 @@ textarea.input { resize: vertical; min-height: 70px; }
 /* ---------- layout ---------- */
 main.page { flex: 1; width: 100%; max-width: 1060px; margin: 0 auto; padding: 1.6rem 1.2rem 3rem; }
 main.page-wide {
-  flex: 1; width: 100%; padding: 0; display: flex; min-height: 0;
-  /* Kaartpagina's (planner, Ontdek) krijgen hun eigen volle-hoogte-layout,
-     los van de natuurlijke documentscroll van #app (Fix 1). */
+  /* flex: 1 1 auto (NIET 'flex: 1' = basis 0%): met basis 'auto' geldt de
+     height-regel hieronder echt; flex-grow vangt een klein verschil tussen de
+     --topbar-h-schatting en de werkelijke topbarhoogte op. Zo houden de
+     kaartpagina's (planner, Ontdek) hun vaste volle-hoogte-layout met interne
+     panelscroll, los van de natuurlijke documentscroll van #app (Fix 1). */
+  flex: 1 1 auto; width: 100%; padding: 0; display: flex; min-height: 0;
   height: calc(100vh - var(--topbar-h));
   height: calc(100dvh - var(--topbar-h));
 }
