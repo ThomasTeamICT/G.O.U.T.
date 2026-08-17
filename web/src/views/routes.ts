@@ -202,7 +202,7 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
     listHolder.append(grid, noResults);
 
     const FIRST = 40; // eerste lichting meteen (blijft < 50 ms long-task-drempel)
-    const BATCH = 30; // rest per animatieframe, ook telkens < 50 ms
+    const FRAME_BUDGET = 8; // ms — voeg per frame kaartjes toe tot dit budget op is
     const total = all.length;
 
     const addCard = (r: RouteSummary): HTMLElement => {
@@ -222,9 +222,11 @@ export function routesView(container: HTMLElement, _params: Record<string, strin
       const step = () => {
         rafId = 0;
         if (destroyed) return; // view opgeruimd: geen batches meer toevoegen
-        const end = Math.min(i + BATCH, total);
+        const start = performance.now();
         const frag = document.createDocumentFragment();
-        for (; i < end; i++) frag.append(addCard(all[i]));
+        // Tijdgebaseerd i.p.v. een vaste batchgrootte: zo blijft elk frame onder
+        // het budget, ongeacht hoe zwaar/licht een kaartje rendert (Fix 11).
+        while (i < total && performance.now() - start < FRAME_BUDGET) frag.append(addCard(all[i++]));
         grid.append(frag);
         updateCount();
         if (i < total) rafId = requestAnimationFrame(step);

@@ -114,8 +114,9 @@ try {
   if (!made.ok()) throw new Error('kon live-testroute niet maken');
   const liveId = (await made.json()).route.id;
 
-  // Eerste fix: thuis, net iets dichter bij het laatste segment dan bij het eerste.
-  await ctx.setGeolocation({ latitude: 50.92975, longitude: 4.1810, accuracy: 20 });
+  // Eerste fix: precies thuis (start ≈ einde vallen samen). Met refIdx=0 wint de
+  // startkant deze lus-tie, ook met de aan de nauwkeurigheid gekoppelde marge (Fix 1).
+  await ctx.setGeolocation({ latitude: 50.93, longitude: 4.18, accuracy: 20 });
   await page.goto(`${BASE}/#/route/${liveId}`);
   await page.waitForSelector('text=Start live', { timeout: 8000 });
   await page.click('text=Start live');
@@ -145,6 +146,17 @@ try {
   });
   if (spoorPts < 2) throw new Error(`afgelegd spoor niet getekend (${spoorPts} punten)`);
   ok(`voortgang steeg naar ${midPct}%, afgelegd spoor getekend (${spoorPts} punten)`);
+
+  // Volledige lus uitlopen tot de eindmarkering: de voortgang moet nu ~100%
+  // bereiken. Vroeger bleef ze structureel ~50 m / ~8% achter en haalde ze nooit
+  // 100% (Fix 1: aan de nauwkeurigheid gekoppelde marge + distM-tie-break).
+  for (const i of [40, 60, 80, 100, 120, 140, 155, 160]) {
+    await ctx.setGeolocation({ latitude: loop[i][1], longitude: loop[i][0], accuracy: 12 });
+    await page.waitForTimeout(350);
+  }
+  const endPct = await pctNow();
+  if (endPct < 99) throw new Error(`lus bereikte de eindmarkering niet: bleef op ${endPct}%`);
+  ok(`lus bereikt de eindmarkering op ${endPct}%`);
 
 
   await browser.close();

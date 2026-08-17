@@ -28,9 +28,15 @@ export function parseGpx(text: string): ParsedGpx {
   if (pts.length === 0) pts = Array.from(doc.querySelectorAll('wpt'));
 
   for (const pt of pts) {
+    // Een punt zonder lat- of lon-attribuut is ongeldig: overslaan (anders werd
+    // een ontbrekend attribuut via Number(null)=0 stil een (0,0)-punt, wat een
+    // geïmporteerde route de halve wereld rond stuurde).
+    if (!pt.hasAttribute('lat') || !pt.hasAttribute('lon')) continue;
     const lat = Number(pt.getAttribute('lat'));
     const lon = Number(pt.getAttribute('lon'));
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    // Buiten het geldige bereik = ook overslaan.
+    if (!(lat >= -90 && lat <= 90) || !(lon >= -180 && lon <= 180)) continue;
     const p: TrackPoint = [lon, lat];
     const eleText = pt.querySelector('ele')?.textContent;
     if (eleText != null && eleText !== '') {

@@ -11,7 +11,7 @@ import {
 import { navigate } from '../router';
 import { session } from '../main';
 import {
-  createMap, drawTrack, fitToTrack, positionIcon, trackToLatLngs,
+  createMap, drawTrack, fitToTrack, positionIcon, trackToLatLngs, displayLatLngs,
   hoverMarker, waypointIcon, TRACK_DONE_STYLE,
 } from '../lib/map';
 import { renderElevation } from '../lib/elevation';
@@ -320,11 +320,47 @@ export function routeView(container: HTMLElement, params: Record<string, string>
     let banner: HTMLElement | null = null;
     let modalOpen = false;
 
+    // Grof-dan-fijn dichtstbijzijnde-index voor de markeer-preview: op lange
+    // routes is een volledige O(n)-scan per muisbeweging te traag (de
+    // voorbeeldlijn loopt dan achter de cursor aan). We bouwen bij het starten
+    // van de markeermodus eenmalig een uitgedunde index en zoeken daarin grof,
+    // dan lokaal fijn (Fix 4).
+    let coarseIdx: number[] | null = null;
+    let coarseK = 1;
+    function buildCoarseIndex() {
+      const n = route.track.length;
+      coarseK = Math.max(1, Math.ceil(n / 4000));
+      if (coarseK === 1) { coarseIdx = null; return; }
+      const idx: number[] = [];
+      for (let i = 0; i < n; i += coarseK) idx.push(i);
+      if (idx[idx.length - 1] !== n - 1) idx.push(n - 1);
+      coarseIdx = idx;
+    }
+    function nearestIdxFast(lon: number, lat: number): number {
+      if (!coarseIdx) return nearestPointIndex(route.track, lon, lat).index;
+      const t = route.track;
+      let best = 0, bestD = Infinity;
+      for (let s = 0; s < coarseIdx.length; s++) {
+        const i = coarseIdx[s];
+        const d = haversine(t[i][0], t[i][1], lon, lat);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      const lo = Math.max(0, best - coarseK), hi = Math.min(t.length - 1, best + coarseK);
+      for (let i = lo; i <= hi; i++) {
+        const d = haversine(t[i][0], t[i][1], lon, lat);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      return best;
+    }
+
     function drawPreview(lo: number, hi: number) {
       if (!markLayer) return;
-      const seg = route.track.slice(lo, hi + 1);
-      if (previewLine) { previewLine.remove(); previewLine = null; }
-      previewLine = L.polyline(trackToLatLngs(seg), { color: '#e8590c', weight: 6, opacity: 0.8 }).addTo(markLayer);
+      // Uitgedund voor de weergave én ÉÉN polyline hergebruiken (setLatLngs)
+      // i.p.v. bij elke muisbeweging een nieuwe te bouwen (Fix 4). Het bewaarde
+      // segment zelf (bij opslaan) blijft op volle resolutie.
+      const latlngs = displayLatLngs(route.track.slice(lo, hi + 1));
+      if (previewLine) previewLine.setLatLngs(latlngs);
+      else previewLine = L.polyline(latlngs, { color: '#e8590c', weight: 6, opacity: 0.8 }).addTo(markLayer);
     }
 
     function drawPointDot(index: number) {
@@ -343,7 +379,7 @@ export function routeView(container: HTMLElement, params: Record<string, string>
 
     function onMarkClick(e: L.LeafletMouseEvent) {
       if (markMode === null || modalOpen) return; // eerst een sub-modus kiezen
-      const { index } = nearestPointIndex(route.track, e.latlng.lng, e.latlng.lat);
+      const index = nearestIdxFast(e.latlng.lng, e.latlng.lat);
       if (markMode === 'point') {
         drawPointDot(index);
         openHighlightModal('point', index, index);
@@ -366,7 +402,7 @@ export function routeView(container: HTMLElement, params: Record<string, string>
 
     function onMarkMove(e: L.LeafletMouseEvent) {
       if (markMode !== 'segment' || firstIdx === null || modalOpen) return;
-      const { index } = nearestPointIndex(route.track, e.latlng.lng, e.latlng.lat);
+      const index = nearestIdxFast(e.latlng.lng, e.latlng.lat);
       drawPreview(Math.min(firstIdx, index), Math.max(firstIdx, index));
     }
 
@@ -471,6 +507,7 @@ export function routeView(container: HTMLElement, params: Record<string, string>
     function startMarking() {
       if (marking || !map) return;
       marking = true;
+      buildCoarseIndex();
       markBtn.disabled = true;
       markLayer = L.layerGroup().addTo(map);
       hitLine = L.polyline(trackToLatLngs(route.track), { color: '#000000', weight: 22, opacity: 0, interactive: true }).addTo(markLayer);
@@ -496,6 +533,7 @@ export function routeView(container: HTMLElement, params: Record<string, string>
       pointDot = null;
       hitLine = null;
       firstIdx = null;
+      coarseIdx = null;
       if (markLayer) { markLayer.remove(); markLayer = null; }
       if (banner) { banner.remove(); banner = null; }
     }
@@ -655,7 +693,7 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
     }
     volgklaar = true;
 
-    const { index, distM } = matchOpRoute(lon, lat, lastProgressIdx);
+    const { index, distM } = matchOpRoute(lon, lat, lastProgressIdx, acc);
     lastProgressIdx = index;
     const done = cum[index];
     const togo = Math.max(0, total - done);
@@ -664,7 +702,10 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
     const restAsc = ascentDescent(rest).ascent;
 
     if (index > 0) {
-      const donePts = trackToLatLngs(track.slice(0, index + 1));
+      // Uitgedund tekenen: op een lange track (bv. 32k punten) kostte het
+      // herbouwen van de 'afgelegd'-lijn op VOLLE resolutie 60-344 ms per fix.
+      // displayLatLngs begrenst dit tot MAX_DISPLAY punten (Fix 3).
+      const donePts = displayLatLngs(track.slice(0, index + 1));
       if (!doneLine) doneLine = L.polyline(donePts, TRACK_DONE_STYLE).addTo(liveMap);
       else doneLine.setLatLngs(donePts);
     }
@@ -756,5 +797,10 @@ function startLive(route: RouteFull, onClose: () => void): () => void {
     onClose();
   }
 
-  return () => close(false);
+  // Bij het verlaten van de detailpagina (terugknop/veeg/navigatie) tijdens een
+  // lopende opname NIET stil de opgenomen punten weggooien: close(true) laat de
+  // bestaande 'opslaan?'-flow lopen. finishRecording() is async maar wordt niet
+  // afgewacht — de cleanup geeft synchroon terug en het opslaan rondt zelf af
+  // (de opslaan-dialoog blijft aan document.body hangen, los van deze view) (Fix 2).
+  return () => close(true);
 }

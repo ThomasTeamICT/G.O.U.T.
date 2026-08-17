@@ -91,9 +91,12 @@ main.page-wide.discover { display: flex; min-height: 0; }
 
 /* ---------- kaart-overlay ---------- */
 .map-holder .discover-search-here {
-  position: absolute; bottom: 1.3rem; left: 50%; transform: translateX(-50%);
+  /* De safe-area hoort op 'bottom' (afstand tot de onderrand), NIET in de
+     padding: in de padding maakte hij de knop scheef en tot 72px hoog terwijl
+     hij helemaal niet aan de onderrand hangt (Fix 10). */
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: calc(1.3rem + env(safe-area-inset-bottom, 0px));
   z-index: 700; box-shadow: var(--shadow-pop);
-  padding-bottom: calc(.62rem + env(safe-area-inset-bottom, 0px)); /* Fix 2 */
 }
 
 .discover-error { text-align: center; color: var(--danger); padding: 2rem 1rem; font-weight: 600; }

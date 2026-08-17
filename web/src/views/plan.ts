@@ -51,6 +51,10 @@ export function planView(
 ) {
   const container = _container;
 
+  // Aanraakscherm? Voor mobielvriendelijke hints i.p.v. 'Shift'-instructies.
+  const isTouch = typeof window !== 'undefined' &&
+    (('ontouchstart' in window) || (!!window.matchMedia && window.matchMedia('(pointer: coarse)').matches));
+
   /* ------------------------------ staat ------------------------------ */
   let sport: Sport = 'wandelen';
   let waypoints: Waypoint[] = [];
@@ -303,20 +307,26 @@ export function planView(
       if (!ok) return;
       exitLoadedMode();
     }
-    // Bewerken i.p.v. bouwen: klik je vlakbij de bestaande route (< 1 km),
-    // dan bedoel je vrijwel zeker een TUSSENSTOP — niet een nieuw eindpunt.
-    // Shift+klik forceert altijd een nieuw eindpunt.
+    // Bewerken i.p.v. bouwen: klik je vlakbij de bestaande route, dan bedoel je
+    // vrijwel zeker een TUSSENSTOP — niet een nieuw eindpunt. Shift+klik forceert
+    // altijd een nieuw eindpunt (desktop).
     if (waypoints.length >= 2 && !e.originalEvent.shiftKey) {
       const buurt = dichtsteLeg(e.latlng.lng, e.latlng.lat);
-      // Tolerantie schaalt mee met het zoomniveau: wat er op het SCHERM
-      // dichtbij uitziet (±35 px), telt als dichtbij — ingezoomd op een dorp
-      // is dat ~100 m, uitgezoomd op de hele tocht gerust een paar km.
+      // Tolerantie = wat er op het SCHERM dichtbij uitziet (±35 px), maar
+      // schermgebonden begrensd: nooit groter dan ~12% van de zichtbare diagonaal
+      // en nooit absurd groot. Vroeger zorgde een vaste 1000 m-vloer dat op
+      // straat-zoom (waar 1000 m het hele scherm beslaat) ÉLKE tik een tussenstop
+      // werd; nu wordt een tik ver weg netjes een nieuw eindpunt (Fix 7).
       const mPerPx = 40075016.686 * Math.abs(Math.cos((e.latlng.lat * Math.PI) / 180)) /
         Math.pow(2, map.getZoom() + 8);
-      const tolM = Math.min(20000, Math.max(1000, 35 * mPerPx));
+      const b = map.getBounds();
+      const diagM = map.distance(b.getSouthWest(), b.getNorthEast());
+      const tolM = Math.min(20000, 0.12 * diagM, Math.max(35 * mPerPx, 30));
       if (buurt && buurt.distM < tolM) {
         insertVia(buurt.leg, e.latlng.lng, e.latlng.lat);
-        toast('Tussenstop toegevoegd. (Shift+klik = nieuw eindpunt)');
+        toast(isTouch
+          ? 'Tussenstop toegevoegd. Tik verderaf voor een nieuw eindpunt.'
+          : 'Tussenstop toegevoegd. (Shift+klik = nieuw eindpunt)');
         return;
       }
     }
@@ -955,7 +965,27 @@ export function planView(
         removeWaypoint(i);
       } }, svgEl(icons.trash), 'Verwijder punt'),
     );
-    L.popup({ closeButton: false, className: 'plan-wpt-popup', offset: [0, -6] })
+    // Fix 8: het via-menu is een Leaflet-popup en die zit gevangen in de
+    // .leaflet-map-pane-stacking-context; puur een hogere z-index tilt hem NIET
+    // boven de zwevende panelen (z-index 800) uit (die panelen liggen als geheel
+    // boven de kaartlagen). We laten de popup daarom met autoPan altijd in de
+    // vrije zone openen: de padding wordt live afgeleid uit de échte hoogte van
+    // de zwevende panelen (zoekbalk/sport-picker + knoppenrij bovenaan, statsbalk
+    // onderaan), zodat álle menuregels klikbaar zijn — ook bij een via bovenaan.
+    const mapRect = map.getContainer().getBoundingClientRect();
+    let topPad = 60, botPad = 60;
+    for (const sel of ['.plan-topleft', '.plan-topright']) {
+      const e = document.querySelector(sel);
+      if (e) topPad = Math.max(topPad, e.getBoundingClientRect().bottom - mapRect.top + 10);
+    }
+    const st = document.querySelector('.plan-stats');
+    if (st) botPad = Math.max(botPad, mapRect.bottom - st.getBoundingClientRect().top + 10);
+    L.popup({
+      closeButton: false, className: 'plan-wpt-popup', offset: [0, -6],
+      autoPan: true,
+      autoPanPaddingTopLeft: L.point(12, Math.round(topPad)),
+      autoPanPaddingBottomRight: L.point(12, Math.round(botPad)),
+    })
       .setLatLng(m.getLatLng())
       .setContent(menu)
       .openOn(map);

@@ -361,6 +361,4 @@ main.page-wide {
   .tabs button { min-height: 44px; }
   .sport-picker button { min-height: 44px; }
   .menu a, .menu button { min-height: 44px; }
-  /* Safe-area onderaan de topbar-dropdown (Fix 2). */
-  .menu { padding-bottom: calc(.35rem + env(safe-area-inset-bottom, 0px)); }
 }

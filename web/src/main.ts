@@ -1,9 +1,9 @@
 // App-shell: authstatus, topbar, router.
 
 import './style.css';
-import { api } from './api';
+import { api, setUnauthorizedHandler } from './api';
 import { el, icons, svgEl, toast } from './ui';
-import { register, startRouter, setGuard, navigate, rerender } from './router';
+import { register, startRouter, setGuard, navigate, currentPath, rerender } from './router';
 import type { User } from './types';
 
 import { authView } from './views/auth';
@@ -23,6 +23,15 @@ export function setUser(u: User | null) {
   session.user = u;
   renderTopbar();
 }
+
+// Sessie verlopen (401 op een beveiligd endpoint, midden in het gebruik): de
+// topbar leegmaken en naar de loginpagina. Zo blijft er geen wees-UI achter met
+// een 'ingelogde' topbar. Geregistreerd i.p.v. geïmporteerd om een circulaire
+// afhankelijkheid tussen api.ts en main.ts te vermijden.
+setUnauthorizedHandler(() => {
+  if (session.user) setUser(null);
+  if (currentPath().replace(/\?.*$/, '') !== '/login') navigate('/login');
+});
 
 const app = document.getElementById('app')!;
 const topbarHolder = el('div', {});

@@ -128,27 +128,48 @@ export function renderElevation(
     tip.style.display = 'none';
     opts.onHover?.(null);
   };
-  // Touch: dezelfde afleeswaarde/cursor tonen. preventDefault houdt de pagina
-  // stil terwijl je met je vinger over de grafiek veegt (Fix 6).
-  const onTouch = (ev: TouchEvent) => {
+  // Touch: dezelfde afleeswaarde/cursor tonen als bij de muis. Met
+  // touch-action: pan-y laat de browser verticaal scrollen door; wij lezen
+  // alleen af (en houden de pagina tegen met preventDefault) bij een duidelijk
+  // HORIZONTALE veeg. Zo blijf je verticaal voorbij de grafiek kunnen scrollen
+  // op de telefoon, terwijl horizontaal vegen nog steeds de waarde toont (Fix 6).
+  svg.style.touchAction = 'pan-y';
+  let tStartX = 0, tStartY = 0;
+  let tAxis: 'none' | 'x' | 'y' = 'none';
+  const onTouchStart = (ev: TouchEvent) => {
     const t = ev.touches[0];
     if (!t) return;
-    ev.preventDefault();
+    tStartX = t.clientX; tStartY = t.clientY; tAxis = 'none';
+    // Nog niet preventDefault of aflezen: de richting kennen we pas bij de
+    // eerste beweging.
+  };
+  const onTouchMove = (ev: TouchEvent) => {
+    const t = ev.touches[0];
+    if (!t) return;
+    if (tAxis === 'none') {
+      const dx = Math.abs(t.clientX - tStartX);
+      const dy = Math.abs(t.clientY - tStartY);
+      if (dx < 6 && dy < 6) return; // te klein om de richting te bepalen
+      tAxis = dx > dy ? 'x' : 'y';
+    }
+    if (tAxis === 'y') return; // verticaal: laat de pagina scrollen
+    ev.preventDefault();       // horizontaal: wij nemen de gesture over
     updateAt(t.clientX);
   };
+  const onTouchEnd = () => { tAxis = 'none'; onLeave(); };
   svg.addEventListener('mousemove', onMove);
   svg.addEventListener('mouseleave', onLeave);
-  svg.addEventListener('touchstart', onTouch, { passive: false });
-  svg.addEventListener('touchmove', onTouch, { passive: false });
-  svg.addEventListener('touchend', onLeave);
+  svg.addEventListener('touchstart', onTouchStart, { passive: true });
+  svg.addEventListener('touchmove', onTouchMove, { passive: false });
+  svg.addEventListener('touchend', onTouchEnd);
 
   return {
     destroy() {
       svg.removeEventListener('mousemove', onMove);
       svg.removeEventListener('mouseleave', onLeave);
-      svg.removeEventListener('touchstart', onTouch);
-      svg.removeEventListener('touchmove', onTouch);
-      svg.removeEventListener('touchend', onLeave);
+      svg.removeEventListener('touchstart', onTouchStart);
+      svg.removeEventListener('touchmove', onTouchMove);
+      svg.removeEventListener('touchend', onTouchEnd);
       container.innerHTML = '';
     },
   };

@@ -14,6 +14,10 @@
 .ac-meta .badge { font-size: .68rem; padding: .12rem .45rem; }
 .ac-meta .badge svg { width: 12px; height: 12px; }
 
+/* Zelfde prestatiewinst als bij de routes: layout/paint van kaartjes buiten
+   beeld overslaan bij lange activiteitenlijsten (Fix 11). */
+.act-card { content-visibility: auto; contain-intrinsic-size: auto 128px; }
+
 /* ---------- uploadmodal ---------- */
 .up-hint { color: var(--muted); font-size: .82rem; margin: .3rem 0 1rem; }
 .up-drop {

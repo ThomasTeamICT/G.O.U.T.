@@ -14,6 +14,12 @@
 .route-card .statline svg { width: 15px; height: 15px; color: var(--muted); }
 .route-card .statline span { display: inline-flex; align-items: center; gap: .2rem; }
 
+/* Prestatie bij véél kaartjes (bv. 300 routes): sla layout/paint van kaartjes
+   buiten beeld over — dit was de grootste bron van lange taken op mobiel. De
+   contain-intrinsic-size houdt de scrollhoogte stabiel; 'auto' onthoudt de
+   echte hoogte na de eerste render (Fix 11). */
+.route-card { content-visibility: auto; contain-intrinsic-size: auto 148px; }
+
 /* ---------- gedeelde kaartwrapper ---------- */
 .map-sized { position: relative; width: 100%; overflow: hidden; }
 /* height:auto houdt de kaart exact in haar houder: een globaal gelekte
