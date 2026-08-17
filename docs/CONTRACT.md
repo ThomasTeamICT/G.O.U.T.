@@ -58,9 +58,21 @@ activities(id, user_id, route_id?, name, sport, track JSON, distance_m, ascent_m
 - `server/geo.js`: `routeStats(sport, track)` → `{distance_m, ascent_m, descent_m, duration_s, difficulty, bbox, start_lon, start_lat}`;
   `activityStats(track)` → idem met `moving_s`, `elapsed_s`; `preview(track)` → `[[lon,lat]×≤120]`; `simplify`, `haversine`, `trackDistance`
 - `server/gpx.js`: `buildGpx({name, description?, track, sport?})` → GPX-string; `gpxFilename(name)`
-- `server/serialize.js`: `routeSummary(row, viewerId?)`, `routeFull(row, viewerId?)`,
-  `activitySummary(row)`, `activityFull(row)` — **gebruik ALTIJD deze serializers** voor API-antwoorden.
-  Voor `ownerName`: join `users.name AS owner_name` in je query.
+- `server/serialize.js`: `routeSummary(row, viewerId?, likeCount?)`, `routeFull(row, viewerId?)`,
+  `activitySummary(row)`, `activityFull(row)`, `highlightSummary(row, viewerId?)` — **gebruik ALTIJD
+  deze serializers** voor API-antwoorden. Voor `ownerName`: join `users.name AS owner_name` in je query.
+  - Optionele `likeCount` van `routeSummary`: geef een vooraf getelde likes-som mee (bv. via één
+    `GROUP BY`-query over de hele lijst) i.p.v. per rij te tellen; de serializer bepaalt `liked` dan apart.
+  - **Prestatie — smalle kolommen.** Lijst-/ontdek-endpoints selecteren de kolomconstanten
+    `ROUTE_SUMMARY_COLUMNS` / `ACTIVITY_SUMMARY_COLUMNS` (exact de summary-velden, ZONDER de zware
+    `track`- en `gpx`-blobs; volle tracks per rij materialiseren was ~87× trager) en roepen daarna
+    `ensurePreviews(table, rows)` aan (vult een ontbrekende `preview` eenmalig bij en bewaart die —
+    self-healing backfill voor legacy-rijen/tests). **Regel: lijst-endpoints gebruiken de smalle
+    kolomlijst + `ensurePreviews`, nooit `SELECT *` / `SELECT r.*`.**
+- `server/cache.js`: `cacheSet(map, key, value, {max, ttl})` — begrensde in-memory cache/teller. Bij een
+  volle map veegt hij eerst verlopen entries weg (waarden met een `.t`-tijdstempel, Date.now()) en dwingt
+  daarna een harde maxgrootte af (oudste-ingevoegde eruit; een Map bewaart insertievolgorde). Gebruikt
+  door o.a. de WMT-cache (proxy) en de auth-rate-limiter (per IP én per e-mailadres).
 - `server/index.js` mount al: `/api/routes`→routesRouter, `/api/shared`→sharedRouter (beide uit api/routes.js),
   `/api/activities`, `/api/stats`, `/api/discover`. Exporteer exact die routernamen.
 - Al beschikbaar (niet bouwen): `POST/GET /api/auth/*`, `GET /api/routing?lonlats=lon,lat|lon,lat&sport=`,

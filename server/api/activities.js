@@ -11,6 +11,7 @@ import { activitySummary, activityFull, ACTIVITY_SUMMARY_COLUMNS, ensurePreviews
 export const activitiesRouter = Router();
 
 const SPORTS = ['wandelen', 'fietsen', 'mtb'];
+const MAX_GPX = 5 * 1024 * 1024; // 5 MB: cap op geuploade/originele gpx-tekst
 
 /* ---------- validatie ---------- */
 
@@ -100,6 +101,8 @@ activitiesRouter.post('/', requireAuth, (req, res) => {
   const ne = nameError(b.name); if (ne) return res.status(400).json({ error: ne });
   if (!SPORTS.includes(b.sport)) return res.status(400).json({ error: 'Kies een geldige sport.' });
   const te = trackError(b.track); if (te) return res.status(400).json({ error: te });
+  if (typeof b.gpx === 'string' && b.gpx.length > MAX_GPX)
+    return res.status(400).json({ error: 'Het GPX-bestand is te groot (max. 5 MB).' });
 
   // routeId enkel accepteren als die route van deze gebruiker is.
   let routeId = null;

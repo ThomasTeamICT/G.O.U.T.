@@ -205,7 +205,7 @@ async function haalKandidaten(sport, gemeenten) {
 
 // ---- Opslag -----------------------------------------------------------------
 
-function ensureBibliotheek() {
+async function ensureBibliotheek() {
   const bestaand = db.prepare('SELECT id FROM users WHERE email = ?').get(BIB_EMAIL);
   if (bestaand) return bestaand.id;
   // Willekeurig wachtwoord — bewust NOOIT gelogd; het account is enkel eigenaar
@@ -213,7 +213,7 @@ function ensureBibliotheek() {
   const wachtwoord = crypto.randomBytes(24).toString('base64url');
   const info = db.prepare(
     'INSERT INTO users (email, name, pass_hash, avatar_color) VALUES (?, ?, ?, ?)'
-  ).run(BIB_EMAIL, BIB_NAAM, hashPassword(wachtwoord), '#3d5a3c');
+  ).run(BIB_EMAIL, BIB_NAAM, await hashPassword(wachtwoord), '#3d5a3c');
   return Number(info.lastInsertRowid);
 }
 
@@ -335,7 +335,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   log(`G.O.U.T.-bibliotheek — oogst${args.droog ? ' (DROOGLOOP: niets wordt weggeschreven)' : ''}`);
 
-  const bibId = args.droog ? null : ensureBibliotheek();
+  const bibId = args.droog ? null : await ensureBibliotheek();
 
   log('Belgische gemeenten ophalen…');
   const gemeenten = await haalGemeenten();

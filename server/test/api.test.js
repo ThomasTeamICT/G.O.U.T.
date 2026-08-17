@@ -4,6 +4,8 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import http from 'node:http';
+import { gunzipSync } from 'node:zlib';
 
 const PORT = 4321;
 const BASE = `http://localhost:${PORT}`;
@@ -684,4 +686,190 @@ test('aanbevolen: nabijheid weegt mee bij zoeken op een dorp', async () => {
   assert.equal(r.data.aanbevolen.wandelen[0].name, 'Kravaalbos-lus', 'dichtstbijzijnde relevante route eerst');
   assert.ok(r.data.aanbevolen.wandelen[0].vanCentrumKm < 2, 'afstand tot centrum meegegeven');
   assert.ok(r.data.aanbevolen.wandelen[1].vanCentrumKm > r.data.aanbevolen.wandelen[0].vanCentrumKm);
+});
+
+// --- Extra servertests voor de serverhardening ------------------------------
+// Deze draaien tegen aparte serverinstanties (poorten 8700-8790) met eigen
+// rate-limit-tellers en, waar nodig, een echte db-file, zodat ze de hoofdsuite
+// niet beinvloeden. Processen worden in finally opgeruimd.
+
+function waitReady(proc, label = 'server') {
+  return new Promise((resolve, reject) => {
+    const to = setTimeout(() => reject(new Error(`${label} startte niet`)), 8000);
+    proc.stdout.on('data', (d) => { if (String(d).includes('draait op')) { clearTimeout(to); resolve(); } });
+  });
+}
+
+function mkClient(base) {
+  let cookie = '';
+  return {
+    getCookie: () => cookie,
+    async req(method, path, body, raw = false) {
+      const res = await fetch(base + path, {
+        method,
+        headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+        redirect: 'manual',
+      });
+      const sc = res.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
+      if (raw) return res;
+      const text = await res.text();
+      let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+      return { status: res.status, data };
+    },
+  };
+}
+
+// Ruwe GET via node:http (geen auto-decompressie zoals fetch), zodat we de
+// content-encoding-header écht kunnen inspecteren.
+function rawGet(base, path, cookie, acceptEncoding) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(base + path);
+    const headers = {};
+    if (cookie) headers.Cookie = cookie;
+    if (acceptEncoding) headers['Accept-Encoding'] = acceptEncoding;
+    const req = http.request(
+      { hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: 'GET', headers },
+      (res) => {
+        const chunks = [];
+        res.on('data', (d) => chunks.push(d));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+      });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+const SMALLTRACK = [[4.18, 50.93, 20], [4.19, 50.93, 22], [4.20, 50.93, 24]];
+
+test('hardening: gpx-cap (finding 2) + gzip op GPX-download (finding 3/4)', async () => {
+  const PORT3 = 8712;
+  const BASE3 = `http://localhost:${PORT3}`;
+  const dataDir = pathJoin(tmpdir(), `gout-hard-${process.pid}-${Date.now()}`);
+  const srv = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
+    env: { ...process.env, GOUT_DB: ':memory:', PORT: String(PORT3), GOUT_DATA_DIR: dataDir },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  try {
+    await waitReady(srv, 'hardening-server');
+    const c = mkClient(BASE3);
+    await c.req('POST', '/api/auth/register', { email: 'hard@test.be', name: 'Harder', password: 'wachtwoord1' });
+
+    // gpx-cap: een gpx-tekst > 5 MB wordt geweigerd (import én activiteit).
+    const hugeGpx = 'x'.repeat(5 * 1024 * 1024 + 32);
+    let r = await c.req('POST', '/api/routes/import', { name: 'Te groot', sport: 'wandelen', track: SMALLTRACK, gpx: hugeGpx });
+    assert.equal(r.status, 400, 'te grote import-gpx geweigerd');
+    r = await c.req('POST', '/api/activities', { name: 'Te groot', sport: 'wandelen', track: SMALLTRACK, gpx: hugeGpx });
+    assert.equal(r.status, 400, 'te grote activiteit-gpx geweigerd');
+    // net binnen de cap mag wel
+    r = await c.req('POST', '/api/routes/import', { name: 'Import ok', sport: 'wandelen', track: SMALLTRACK, gpx: '<gpx/>' });
+    assert.equal(r.status, 201, 'kleine gpx aanvaard');
+
+    // gzip: een geplande route -> GPX-download moet content-encoding gzip krijgen
+    // en correct gunzippen naar geldig GPX.
+    r = await c.req('POST', '/api/routes', { name: 'Gzip-route', sport: 'wandelen', track: TRACK });
+    assert.equal(r.status, 201, JSON.stringify(r.data));
+    const rid = r.data.route.id;
+
+    const gz = await rawGet(BASE3, `/api/routes/${rid}/gpx`, c.getCookie(), 'gzip');
+    assert.equal(gz.status, 200);
+    assert.equal(gz.headers['content-encoding'], 'gzip', 'GPX-download komt gecomprimeerd binnen');
+    assert.match(gz.headers['content-type'] || '', /gpx/);
+    const xml = gunzipSync(gz.body).toString('utf8');
+    assert.match(xml, /<trkpt/, 'gunzip levert geldig GPX');
+    assert.match(xml, /Gzip-route/);
+    // duidelijke winst: gecomprimeerd < origineel
+    assert.ok(gz.body.length < Buffer.byteLength(xml), `gzip kleiner (${gz.body.length} < ${Buffer.byteLength(xml)})`);
+
+    // zonder Accept-Encoding: gewoon ongecomprimeerd en nog steeds geldig.
+    const plain = await rawGet(BASE3, `/api/routes/${rid}/gpx`, c.getCookie(), '');
+    assert.equal(plain.status, 200);
+    assert.ok(!plain.headers['content-encoding'], 'geen content-encoding zonder Accept-Encoding');
+    assert.match(plain.body.toString('utf8'), /<trkpt/);
+  } finally {
+    srv.kill();
+    try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* ok */ }
+  }
+});
+
+test('hardening: rate-limit per e-mailadres (finding 1)', async () => {
+  const PORT4 = 8723;
+  const BASE4 = `http://localhost:${PORT4}`;
+  const dataDir = pathJoin(tmpdir(), `gout-rl-${process.pid}-${Date.now()}`);
+  const srv = spawn(process.execPath, ['--no-warnings', 'server/index.js'], {
+    env: { ...process.env, GOUT_DB: ':memory:', PORT: String(PORT4), GOUT_DATA_DIR: dataDir },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  try {
+    await waitReady(srv, 'ratelimit-server');
+    const a = mkClient(BASE4);
+    await a.req('POST', '/api/auth/register', { email: 'victim@test.be', name: 'Slachtoffer', password: 'wachtwoord1' });
+
+    // Blijf verkeerd inloggen op één account: de per-e-mailteller moet ingrijpen
+    // (herkenbaar aan de "voor dit account"-boodschap), niet de per-IP-teller.
+    let blocked = false;
+    for (let i = 0; i < 15; i++) {
+      const r = await a.req('POST', '/api/auth/login', { email: 'victim@test.be', password: 'fout' });
+      if (r.status === 429) {
+        assert.match(String(r.data.error || ''), /account/, 'per-e-mail rate-limit trad op');
+        blocked = true;
+        break;
+      }
+      assert.equal(r.status, 401, `poging ${i} verwacht 401 (kreeg ${r.status})`);
+    }
+    assert.ok(blocked, '400 pogingen op één account worden geweigerd (per-e-mail-teller)');
+
+    // Een ANDER account werkt nog: het blok is per e-mail, niet site-breed.
+    const b = mkClient(BASE4);
+    let r = await b.req('POST', '/api/auth/register', { email: 'ander@test.be', name: 'Ander', password: 'wachtwoord1' });
+    assert.equal(r.status, 200, 'ander account kan nog registreren');
+    r = await b.req('POST', '/api/auth/login', { email: 'ander@test.be', password: 'wachtwoord1' });
+    assert.equal(r.status, 200, 'ander account kan nog inloggen (per-e-mail-isolatie)');
+  } finally {
+    srv.kill();
+    try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* ok */ }
+  }
+});
+
+test('hardening: verlopen sessie geweigerd én opgeruimd (finding 6)', async () => {
+  const PORT5 = 8734;
+  const BASE5 = `http://localhost:${PORT5}`;
+  const dataDir = pathJoin(tmpdir(), `gout-sess-${process.pid}-${Date.now()}`);
+  const env = { ...process.env, PORT: String(PORT5), GOUT_DATA_DIR: dataDir };
+  delete env.GOUT_DB; // echte db-file zodat een 2e connectie de vervaltijd kan bijwerken
+  const srv = spawn(process.execPath, ['--no-warnings', 'server/index.js'], { env, stdio: ['ignore', 'pipe', 'inherit'] });
+  try {
+    await waitReady(srv, 'session-server');
+    const c = mkClient(BASE5);
+    let r = await c.req('POST', '/api/auth/register', { email: 'sess@test.be', name: 'Sessie', password: 'wachtwoord1' });
+    assert.equal(r.status, 200);
+    // met geldige sessie: toegang
+    r = await c.req('GET', '/api/routes');
+    assert.equal(r.status, 200, 'geldige sessie geeft toegang');
+
+    // zet de vervaltijd net in het verleden (zelfde datetime()-formaat als de server)
+    const dbPath = pathJoin(dataDir, 'gout.db');
+    const w = new DatabaseSync(dbPath);
+    let userId;
+    try {
+      userId = w.prepare("SELECT id FROM users WHERE email = 'sess@test.be'").get().id;
+      const before = w.prepare('SELECT COUNT(*) c FROM sessions WHERE user_id = ?').get(userId).c;
+      assert.equal(before, 1, 'één sessie voor het verlopen');
+      w.prepare("UPDATE sessions SET expires_at = datetime('now','-1 hour') WHERE user_id = ?").run(userId);
+    } finally { w.close(); }
+
+    // verlopen sessie: geweigerd (401)
+    r = await c.req('GET', '/api/routes');
+    assert.equal(r.status, 401, 'verlopen sessie wordt geweigerd');
+
+    // én opgeruimd door de sessie-middleware (aangeboden verlopen token verwijderd)
+    const ro = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const na = ro.prepare('SELECT COUNT(*) c FROM sessions WHERE user_id = ?').get(userId).c;
+      assert.equal(na, 0, 'verlopen sessie is opgeruimd');
+    } finally { ro.close(); }
+  } finally {
+    srv.kill();
+    try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* ok */ }
+  }
 });

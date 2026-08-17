@@ -14,6 +14,7 @@ export const sharedRouter = Router();
 
 const SPORTS = ['wandelen', 'fietsen', 'mtb'];
 const VISIBILITIES = ['private', 'public'];
+const MAX_GPX = 5 * 1024 * 1024; // 5 MB: cap op geuploade/originele gpx-tekst
 
 /* ---------- validatie ---------- */
 
@@ -95,9 +96,21 @@ function likesInfo(routeId, viewerId) {
 }
 
 function sendGpx(res, row) {
-  const gpx = row.gpx || buildGpx({
-    name: row.name, description: row.description, track: JSON.parse(row.track), sport: row.sport,
-  });
+  let gpx = row.gpx;
+  if (!gpx) {
+    // buildGpx draait synchroon en blokkeert bij elke download de event loop.
+    // Cache het resultaat in de bestaande gpx-kolom voor GEPLANDE routes: een
+    // volgende download is dan enkel een DB-string. De cache wordt in PUT op NULL
+    // gezet zodra naam/beschrijving/sport/track wijzigt, dus hij blijft kloppen.
+    // Geimporteerde routes bewaren hun originele bestand — daar cachen we niet
+    // overheen (en na een track-edit staat gpx daar op NULL, dan bouwen we telkens).
+    gpx = buildGpx({
+      name: row.name, description: row.description, track: JSON.parse(row.track), sport: row.sport,
+    });
+    if (row.source === 'gepland') {
+      try { db.prepare('UPDATE routes SET gpx = ? WHERE id = ?').run(gpx, row.id); } catch { /* best effort */ }
+    }
+  }
   res.setHeader('Content-Type', 'application/gpx+xml; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${gpxFilename(row.name)}"`);
   res.send(gpx);
@@ -169,6 +182,8 @@ routesRouter.post('/import', requireAuth, (req, res) => {
   const ne = nameError(b.name); if (ne) return res.status(400).json({ error: ne });
   if (!SPORTS.includes(b.sport)) return res.status(400).json({ error: 'Kies een geldige sport.' });
   const te = trackError(b.track); if (te) return res.status(400).json({ error: te });
+  if (typeof b.gpx === 'string' && b.gpx.length > MAX_GPX)
+    return res.status(400).json({ error: 'Het GPX-bestand is te groot (max. 5 MB).' });
   const gpxText = typeof b.gpx === 'string' ? b.gpx : null;
 
   const stats = routeStats(b.sport, b.track);
@@ -287,7 +302,7 @@ routesRouter.put('/:id', requireAuth, (req, res) => {
     const te = trackError(b.track); if (te) return res.status(400).json({ error: te });
     const stats = routeStats(sport, b.track);
     sets.push('track = ?', 'distance_m = ?', 'ascent_m = ?', 'descent_m = ?', 'duration_s = ?',
-      'difficulty = ?', 'bbox = ?', 'start_lat = ?', 'start_lon = ?', 'preview = ?', 'gpx = NULL');
+      'difficulty = ?', 'bbox = ?', 'start_lat = ?', 'start_lon = ?', 'preview = ?');
     args.push(JSON.stringify(b.track), stats.distance_m, stats.ascent_m, stats.descent_m,
       stats.duration_s, stats.difficulty, JSON.stringify(stats.bbox),
       stats.start_lat, stats.start_lon, JSON.stringify(preview(b.track)));
@@ -295,6 +310,16 @@ routesRouter.put('/:id', requireAuth, (req, res) => {
     // Sport gewijzigd zonder nieuwe track: duur & moeilijkheid hangen af van sport.
     const stats = routeStats(sport, JSON.parse(row.track));
     sets.push('duration_s = ?', 'difficulty = ?'); args.push(stats.duration_s, stats.difficulty);
+  }
+
+  // De gpx-kolom cacht de gegenereerde GPX (finding 8). Leeg hem zodra die niet
+  // meer klopt: bij elke track-wijziging (ook bij een geimporteerde route — het
+  // origineel klopt dan niet meer) en bij een naam/beschrijving/sport-wijziging
+  // van een GEPLANDE route (een geimporteerde route houdt zijn originele bestand
+  // bij louter hernoemen). region/visibility/waypoints raken de GPX niet.
+  if (b.track !== undefined ||
+      (row.source === 'gepland' && (b.name !== undefined || b.description !== undefined || b.sport !== undefined))) {
+    sets.push('gpx = NULL');
   }
 
   if (sets.length) {

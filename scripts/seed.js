@@ -5,12 +5,12 @@ import { db } from '../server/db.js';
 import { hashPassword } from '../server/auth.js';
 import { routeStats, preview } from '../server/geo.js';
 
-function ensureUser(email, name, password, color) {
+async function ensureUser(email, name, password, color) {
   const bestaand = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
   if (bestaand) return bestaand.id;
   const info = db.prepare(
     'INSERT INTO users (email, name, pass_hash, avatar_color) VALUES (?, ?, ?, ?)'
-  ).run(email, name, hashPassword(password), color);
+  ).run(email, name, await hashPassword(password), color);
   return Number(info.lastInsertRowid);
 }
 
@@ -49,7 +49,7 @@ if (process.argv.includes('--verwijder-voorbeelden')) {
   process.exit(0);
 }
 
-const demoId = ensureUser('demo@gout.be', 'Demo Wandelaar', 'demo1234', '#33586e');
+const demoId = await ensureUser('demo@gout.be', 'Demo Wandelaar', 'demo1234', '#33586e');
 
 const voorbeelden = [
   { name: 'Lus door de Brabantse Kouters', sport: 'wandelen', c: [4.185, 50.935], r: 4.2, ele: [35, 18], region: 'Opwijk, België', desc: 'Rustige wandeling door veldwegen en kerkpaadjes rond Opwijk.' },
